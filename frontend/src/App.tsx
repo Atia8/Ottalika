@@ -4,6 +4,12 @@ import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
 import ManagerDashboard from './components/manager/Dashboard';
+import ManagerRenters from './components/manager/Renters';
+import ManagerBills from './components/manager/Bills';
+import ManagerMaintenance from './components/manager/Maintenance';
+import ManagerPayments from './components/manager/Payments';
+import ManagerSettings from './components/manager/Settings';
+import ManagerMessages from './components/manager/Messages';
 import Layout from './components/common/Layout';
 
 // Protected Route Component
@@ -44,6 +50,12 @@ const RoleBasedRoutes = () => {
         <Layout>
           <Routes>
             <Route path="/dashboard" element={<ManagerDashboard />} />
+            <Route path="/renters" element={<ManagerRenters />} />
+            <Route path="/bills" element={<ManagerBills />} />
+            <Route path="/maintenance" element={<ManagerMaintenance />} />
+            <Route path="/payments" element={<ManagerPayments />} />
+            <Route path="/messages" element={<ManagerMessages />} />
+            <Route path="/settings" element={<ManagerSettings />} />
             <Route path="/" element={<Navigate to="/dashboard" />} />
           </Routes>
         </Layout>
