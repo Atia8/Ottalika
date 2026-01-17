@@ -1,38 +1,82 @@
-.App {
-  text-align: center;
+/* --- GLOBAL RESETS REMOVED TO PREVENT LAYOUT CRASH --- */
+/* * { margin: 0; padding: 0; box-sizing: border-box; } 
+body { font-family: ... background: #fafafa; }
+*/
+
+/* --- RENTER-SPECIFIC COMPONENTS --- */
+/* Use these classes inside your Renter JSX pages */
+
+/* Basic card style for renter pages */
+.page-card {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  margin-top: 1rem;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
-}
-
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+/* Renter-specific button styles */
+.btn {
+  padding: 0.75rem 1.5rem;
+  border-radius: 10px;
+  border: none;
+  font-weight: 500;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
+  gap: 0.5rem;
+}
+
+.btn-primary {
+  background: #667eea; /* Her light blue/purple */
   color: white;
 }
 
-.App-link {
-  color: #61dafb;
+.btn-primary:hover {
+  background: #5a67d8;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
+.btn-secondary {
+  background: rgba(0, 0, 0, 0.03);
+  color: #666;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.btn-secondary:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #333;
+}
+
+/* --- UTILITY CLASSES --- */
+.text-center { text-align: center; }
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+.mt-3 { margin-top: 1.5rem; }
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
+.mb-3 { margin-bottom: 1.5rem; }
+
+/* --- PAGE WRAPPER ADJUSTMENT --- */
+/* We keep her padding but remove the max-width so it fits inside your Layout */
+.page-wrapper {
+  padding: 1.5rem;
+}
+
+/* Custom scrollbar - Optional: removed to keep your layout clean */
+/* ::-webkit-scrollbar { width: 8px; }
+*/
+
+/* Responsive adjustments for Renter pages */
+@media (max-width: 768px) {
+  .page-wrapper {
+    padding: 1rem;
   }
-  to {
-    transform: rotate(360deg);
+  .page-card {
+    padding: 1.5rem;
   }
 }
