@@ -3,7 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './pages/Login';
-import Layout from './components/common/Layout';
+import Layout from './Layout';
 
 // Manager Imports (Your TSX files)
 import ManagerDashboard from './components/manager/Dashboard';
