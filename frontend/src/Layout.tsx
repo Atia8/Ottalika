@@ -1,5 +1,7 @@
 // frontend/src/Layout.tsx
 import React from 'react';
+// Add to imports:
+import { FaClipboard, FaExclamationTriangle } from 'react-icons/fa';
 import { useState } from 'react';
 import { useAuth } from './context/AuthContext';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
@@ -35,11 +37,14 @@ const Layout: React.FC = () => {
     { id: 'messages', name: 'Messages', icon: <FaEnvelope />, path: '/renter/messages' },
   ];
 
-  // Define Nav Items for Owners
-  const ownerNav = [
-    { id: 'dashboard', name: 'Dashboard', icon: <FaHome />, path: '/owner' },
-    { id: 'payments', name: 'Payments', icon: <FaCheckCircle />, path: '/owner/payments' },
-  ];
+const ownerNav = [
+  { id: 'dashboard', name: 'Dashboard', icon: <FaHome />, path: '/owner' },
+  { id: 'payments', name: 'Payments', icon: <FaCheckCircle />, path: '/owner/payments' },
+  { id: 'requests', name: 'Requests', icon: <FaClipboard />, path: '/owner/requests' },
+  { id: 'manager-status', name: 'Manager Status', icon: <FaUsers />, path: '/owner/manager-status' },
+  { id: 'complaints', name: 'Complaints', icon: <FaExclamationTriangle />, path: '/owner/complaints' },
+];
+
 
   // Get nav items based on role
   const getNavItems = () => {
