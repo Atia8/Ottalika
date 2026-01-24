@@ -100,3 +100,52 @@ INSERT INTO payment_confirmations (payment_id, manager_id, status, verified_at) 
 (7, 1, 'verified', '2024-12-03 11:00:00'),
 (8, 1, 'verified', '2024-11-04 15:00:00'),
 (9, 1, 'verified', '2024-11-03 11:00:00');
+
+-- Add these to your existing schema:
+
+-- 1. Add status field to renters table if not exists
+ALTER TABLE renters ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active';
+
+-- 2. Create maintenance_requests table for complaints
+CREATE TABLE IF NOT EXISTS maintenance_requests (
+  id SERIAL PRIMARY KEY,
+  apartment_id INTEGER REFERENCES apartments(id) NOT NULL,
+  renter_id INTEGER REFERENCES renters(id) NOT NULL,
+  title VARCHAR(200) NOT NULL,
+  description TEXT,
+  priority VARCHAR(20) DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
+  status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled')),
+  assigned_to INTEGER, -- manager or staff id
+  completed_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 3. Create manager_tasks table
+CREATE TABLE IF NOT EXISTS manager_tasks (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(200) NOT NULL,
+  description TEXT,
+  task_type VARCHAR(50),
+  priority VARCHAR(20) DEFAULT 'medium',
+  status VARCHAR(20) DEFAULT 'pending',
+  due_date DATE,
+  assigned_to INTEGER, -- manager id
+  completed_at TIMESTAMP,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 4. Add some sample data
+INSERT INTO maintenance_requests (apartment_id, renter_id, title, description, priority, status) VALUES
+(1, 1, 'AC not working', 'AC in living room not cooling properly', 'high', 'pending'),
+(2, 2, 'Leaking tap', 'Kitchen tap leaking continuously', 'medium', 'in_progress'),
+(4, 3, 'Electrical issue', 'Power socket in bedroom not working', 'urgent', 'pending');
+
+INSERT INTO manager_tasks (title, description, task_type, priority, status, due_date) VALUES
+('Review new renter application', 'Review documents for apartment 103 applicant', 'renter_approval', 'high', 'pending', CURRENT_DATE + 2),
+('Collect rent from overdue tenants', 'Follow up with tenants in apartments 202, 301', 'rent_collection', 'medium', 'pending', CURRENT_DATE + 3),
+('Schedule building maintenance', 'Annual maintenance check for elevators', 'maintenance', 'low', 'in_progress', CURRENT_DATE + 7);
+
+-- 5. Update renters with pending status for some
+UPDATE renters SET status = 'pending' WHERE id IN (3, 4, 5);
