@@ -1,8 +1,9 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import React, { createContext, useState, useContext, useEffect, type ReactNode } from 'react';
 import { toast } from 'react-hot-toast';
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// Change from process.env (CRA) to import.meta.env (Vite)
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 interface User {
   id: string;

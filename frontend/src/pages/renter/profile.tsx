@@ -2,7 +2,16 @@ import React, { useState } from 'react';
 import './profile.css';
 
 const Profile = () => {
-  const [userData, setUserData] = useState({
+  interface UserData {
+  fullName: string;
+  phoneNumber: string;
+  email: string;
+  joinDate: string;
+  apartment: string;
+  monthlyRent: string;
+}
+
+const [userData, setUserData] = useState<UserData>({
     fullName: 'Ahmed Rahman',
     phoneNumber: '+880 1712-345678',
     email: 'ahmed.rahman@email.com',
@@ -17,7 +26,7 @@ const Profile = () => {
     { name: 'Family Information', status: 'uploaded', verified: false }
   ]);
 
-  const handleFileUpload = (index) => {
+  const handleFileUpload = (index: number) => {
     const newDocuments = [...documents];
     newDocuments[index].status = 'uploaded';
     setDocuments(newDocuments);

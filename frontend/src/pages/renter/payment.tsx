@@ -15,12 +15,12 @@ const Payments = () => {
     { month: 'September 2025', amount: '+15,000', date: '2025-09-01', status: 'Confirmed' },
   ];
 
-  const handleSubmitPayment = (e) => {
-    e.preventDefault();
-    alert(`Payment submitted for ${paymentMonth}`);
-    setShowPaymentForm(false);
-    setTransactionId('');
-  };
+const handleSubmitPayment = (e: React.FormEvent) => {
+  e.preventDefault();
+  alert(`Payment submitted for ${paymentMonth}`);
+  setShowPaymentForm(false);
+  setTransactionId('');
+};
 
   return (
     <div className="payments page-transition">

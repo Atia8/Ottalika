@@ -1,18 +1,15 @@
+// frontend/src/Layout.tsx
 import React from 'react';
 import { useState } from 'react';
 import { useAuth } from './context/AuthContext';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { 
   FaBars, FaSignOutAlt, FaHome, FaUsers, FaReceipt, FaTools,
   FaCheckCircle, FaEnvelope, FaCaretRight, FaBell, FaUserCircle,
   FaSearch, FaCog, FaUser
 } from 'react-icons/fa';
 
-interface LayoutProps {
-  children: React.ReactNode;
-}
-
-const Layout: React.FC<LayoutProps> = ({ children }) => {
+const Layout: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -20,29 +17,28 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   // Define Nav Items for Managers
   const managerNav = [
-    { id: 'dashboard', name: 'Dashboard', icon: <FaHome />, path: '/dashboard' },
-    { id: 'renters', name: 'Renters', icon: <FaUsers />, path: '/renters' },
-    { id: 'bills', name: 'Bills', icon: <FaReceipt />, path: '/bills' },
-    { id: 'maintenance', name: 'Maintenance', icon: <FaTools />, path: '/maintenance' },
-    { id: 'payments', name: 'Payments', icon: <FaCheckCircle />, path: '/payments' },
-    { id: 'messages', name: 'Messages', icon: <FaEnvelope />, path: '/messages' },
-    { id: 'settings', name: 'Settings', icon: <FaCog />, path: '/settings' },
+    { id: 'dashboard', name: 'Dashboard', icon: <FaHome />, path: '/manager/dashboard' },
+    { id: 'renters', name: 'Renters', icon: <FaUsers />, path: '/manager/renters' },
+    { id: 'bills', name: 'Bills', icon: <FaReceipt />, path: '/manager/bills' },
+    { id: 'maintenance', name: 'Maintenance', icon: <FaTools />, path: '/manager/maintenance' },
+    { id: 'payments', name: 'Payments', icon: <FaCheckCircle />, path: '/manager/payments' },
+    { id: 'messages', name: 'Messages', icon: <FaEnvelope />, path: '/manager/messages' },
+    { id: 'settings', name: 'Settings', icon: <FaCog />, path: '/manager/settings' },
   ];
 
   // Define Nav Items for Renters (Matching her pages)
   const renterNav = [
-    { id: 'dashboard', name: 'Dashboard', icon: <FaHome />, path: '/dashboard' },
-    { id: 'profile', name: 'My Profile', icon: <FaUser />, path: '/profile' },
-    { id: 'payments', name: 'Payments', icon: <FaCheckCircle />, path: '/payments' },
-    { id: 'complaints', name: 'Complaints', icon: <FaTools />, path: '/complaints' },
-    { id: 'messages', name: 'Messages', icon: <FaEnvelope />, path: '/messages' },
+    { id: 'dashboard', name: 'Dashboard', icon: <FaHome />, path: '/renter/dashboard' },
+    { id: 'profile', name: 'My Profile', icon: <FaUser />, path: '/renter/profile' },
+    { id: 'payments', name: 'Payments', icon: <FaCheckCircle />, path: '/renter/payments' },
+    { id: 'complaints', name: 'Complaints', icon: <FaTools />, path: '/renter/complaints' },
+    { id: 'messages', name: 'Messages', icon: <FaEnvelope />, path: '/renter/messages' },
   ];
 
   // Define Nav Items for Owners
   const ownerNav = [
-    { id: 'dashboard', name: 'Dashboard', icon: <FaHome />, path: '/dashboard' },
-    { id: 'payments', name: 'Payments', icon: <FaCheckCircle />, path: '/payments' },
-    { id: 'messages', name: 'Messages', icon: <FaEnvelope />, path: '/messages' },
+    { id: 'dashboard', name: 'Dashboard', icon: <FaHome />, path: '/owner' },
+    { id: 'payments', name: 'Payments', icon: <FaCheckCircle />, path: '/owner/payments' },
   ];
 
   // Get nav items based on role
@@ -82,18 +78,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   // Get active page title
   const getActivePageTitle = () => {
     const activeItem = navItems.find(item => isActive(item.path));
-    if (activeItem && activeItem.id !== 'dashboard') {
+    if (activeItem) {
       return activeItem.name;
     }
     
-    if (location.pathname === '/dashboard') {
-      switch (user?.role) {
-        case 'renter': return 'My Dashboard';
-        case 'owner': return 'Owner Dashboard';
-        case 'manager': return 'Manager Dashboard';
-        default: return 'Dashboard';
-      }
-    }
+    // Fallback titles based on path
+    if (location.pathname.includes('/owner')) return 'Owner Portal';
+    if (location.pathname.includes('/manager')) return 'Manager Portal';
+    if (location.pathname.includes('/renter')) return 'Renter Portal';
     
     return 'Ottalika';
   };
@@ -227,13 +219,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           <div className="mt-6 pt-6 border-t border-slate-200">
             <button 
               onClick={() => { 
-                navigate('/settings'); 
+                if (user?.role === 'manager') {
+                  navigate('/manager/settings');
+                } else if (user?.role === 'renter') {
+                  navigate('/renter/profile');
+                } else if (user?.role === 'owner') {
+                  navigate('/owner');
+                }
                 setSidebarOpen(false); 
               }}
               className={`
                 w-full flex items-center space-x-4 p-4 rounded-xl transition-colors
                 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:ring-offset-2
-                ${isActive('/settings')
+                ${location.pathname.includes('settings') || location.pathname.includes('profile')
                   ? 'bg-gradient-to-r from-violet-600 to-purple-600 text-white'
                   : 'text-slate-700 hover:bg-slate-50'
                 }
@@ -241,9 +239,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             >
               <FaCog className={`
                 text-xl transition-colors
-                ${isActive('/settings') ? 'text-white' : 'text-slate-500'}
+                ${location.pathname.includes('settings') || location.pathname.includes('profile') 
+                  ? 'text-white' 
+                  : 'text-slate-500'
+                }
               `} />
-              <span className="font-medium">Settings</span>
+              <span className="font-medium">
+                {user?.role === 'renter' ? 'My Profile' : 'Settings'}
+              </span>
             </button>
           </div>
         </nav>
@@ -282,10 +285,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
         </header>
 
-        {/* Main Content */}
+        {/* Main Content - Render nested routes here */}
         <main className="flex-1 p-4 md:p-6 lg:p-8 pt-20 lg:pt-6 overflow-y-auto">
           <div className="max-w-7xl mx-auto">
-            {children}
+            <Outlet /> {/* This renders the nested route components */}
           </div>
         </main>
       </div>
