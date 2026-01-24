@@ -19,8 +19,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<void>;
-  register: (userData: any) => Promise<void>;
+  login: (email: string, password: string) => Promise<User>; // Returns User
+  register: (userData: any) => Promise<User>; // Returns User
   logout: () => void;
   isLoading: boolean;
   token: string | null;
@@ -47,8 +47,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsLoading(false);
   }, []);
 
-  // Login function
-  const login = async (email: string, password: string) => {
+  // Login function - NOW RETURNS USER
+  const login = async (email: string, password: string): Promise<User> => {
     try {
       setIsLoading(true);
       
@@ -70,6 +70,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       
       toast.success(`Welcome back, ${user.firstName}!`);
       
+      // RETURN THE USER
+      return user;
+      
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || 'Login failed. Please try again.';
       toast.error(errorMessage);
@@ -79,8 +82,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // Register function
-  const register = async (userData: any) => {
+  // Register function - NOW RETURNS USER
+  const register = async (userData: any): Promise<User> => {
     try {
       setIsLoading(true);
       
@@ -98,6 +101,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       
       toast.success(`Account created successfully! Welcome, ${user.firstName}!`);
+      
+      // RETURN THE USER
+      return user;
       
     } catch (error: any) {
       const errorMessage = error.response?.data?.message || 'Registration failed. Please try again.';

@@ -1,8 +1,7 @@
-// frontend/src/routes.tsx - Hybrid version
+// frontend/src/routes.tsx - FIXED VERSION
 import { createBrowserRouter } from "react-router-dom";
-import App from "./App";
 import Login from "./pages/Login";
-import Layout from "./Layout"; // Your Layout
+import  Layout from "./Layout"; // Use your Layout component
 
 // Her owner components
 import { OwnerDashboard } from "./components/owner/OwnerDashboard";
@@ -25,88 +24,88 @@ import RenterComplaints from "./pages/renter/complaint.js";
 import RenterMessages from "./pages/renter/messages.js";
 
 // Protected route wrapper
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  return children;
+const ProtectedRoute = ({ children, role }: { children: React.ReactNode, role?: string }) => {
+  return <>{children}</>;
 };
 
 export const router = createBrowserRouter([
+  // Public routes
+  {
+    path: "/login",
+    element: <Login />,
+  },
+  
+  // Main layout route
   {
     path: "/",
-    element: <App />,
+    element: <Layout />, // Default role, will be dynamic based on auth
     children: [
-      // Public routes
+      // Home/landing
       {
-        path: "login",
-        element: <Login />,
+        index: true,
+        element: <div>Welcome to Ottalika</div>,
       },
       
-      // Protected routes - using your Layout
+      // Owner routes (from her)
       {
-        path: "/",
-        element: <Layout>{/* This will be replaced by outlet */}</Layout>,
-        children: [
-          // Owner routes (from her)
-          {
-            path: "owner",
-            element: <OwnerDashboard />,
-          },
-          {
-            path: "owner/payments",
-            element: <OwnerPayments />,
-          },
-          
-          // Manager routes (yours)
-          {
-            path: "manager/dashboard",
-            element: <ManagerDashboard />,
-          },
-          {
-            path: "manager/renters",
-            element: <ManagerRenters />,
-          },
-          {
-            path: "manager/bills",
-            element: <ManagerBills />,
-          },
-          {
-            path: "manager/maintenance",
-            element: <ManagerMaintenance />,
-          },
-          {
-            path: "manager/payments",
-            element: <ManagerPayments />,
-          },
-          {
-            path: "manager/settings",
-            element: <ManagerSettings />,
-          },
-          {
-            path: "manager/messages",
-            element: <ManagerMessages />,
-          },
-          
-          // Renter routes (yours)
-          {
-            path: "renter/dashboard",
-            element: <RenterDashboard />,
-          },
-          {
-            path: "renter/profile",
-            element: <RenterProfile />,
-          },
-          {
-            path: "renter/payments",
-            element: <RenterPayments />,
-          },
-          {
-            path: "renter/complaints",
-            element: <RenterComplaints />,
-          },
-          {
-            path: "renter/messages",
-            element: <RenterMessages />,
-          },
-        ],
+        path: "owner",
+        element: <ProtectedRoute role="owner"><OwnerDashboard /></ProtectedRoute>,
+      },
+      {
+        path: "owner/payments",
+        element: <ProtectedRoute role="owner"><OwnerPayments /></ProtectedRoute>,
+      },
+      
+      // Manager routes (yours)
+      {
+        path: "manager/dashboard",
+        element: <ProtectedRoute role="manager"><ManagerDashboard /></ProtectedRoute>,
+      },
+      {
+        path: "manager/renters",
+        element: <ProtectedRoute role="manager"><ManagerRenters /></ProtectedRoute>,
+      },
+      {
+        path: "manager/bills",
+        element: <ProtectedRoute role="manager"><ManagerBills /></ProtectedRoute>,
+      },
+      {
+        path: "manager/maintenance",
+        element: <ProtectedRoute role="manager"><ManagerMaintenance /></ProtectedRoute>,
+      },
+      {
+        path: "manager/payments",
+        element: <ProtectedRoute role="manager"><ManagerPayments /></ProtectedRoute>,
+      },
+      {
+        path: "manager/settings",
+        element: <ProtectedRoute role="manager"><ManagerSettings /></ProtectedRoute>,
+      },
+      {
+        path: "manager/messages",
+        element: <ProtectedRoute role="manager"><ManagerMessages /></ProtectedRoute>,
+      },
+      
+      // Renter routes (yours)
+      {
+        path: "renter/dashboard",
+        element: <ProtectedRoute role="renter"><RenterDashboard /></ProtectedRoute>,
+      },
+      {
+        path: "renter/profile",
+        element: <ProtectedRoute role="renter"><RenterProfile /></ProtectedRoute>,
+      },
+      {
+        path: "renter/payments",
+        element: <ProtectedRoute role="renter"><RenterPayments /></ProtectedRoute>,
+      },
+      {
+        path: "renter/complaints",
+        element: <ProtectedRoute role="renter"><RenterComplaints /></ProtectedRoute>,
+      },
+      {
+        path: "renter/messages",
+        element: <ProtectedRoute role="renter"><RenterMessages /></ProtectedRoute>,
       },
     ],
   },

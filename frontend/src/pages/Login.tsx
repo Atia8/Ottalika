@@ -7,7 +7,7 @@ const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLogin, setIsLogin] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);       
   const { login, register } = useAuth();
   const navigate = useNavigate();
 
@@ -16,18 +16,26 @@ const Login = () => {
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<'manager' | 'owner' | 'renter'>('renter');
-  const [buildingId, setBuildingId] = useState('');
+  const [buildingId, setBuildingId] = useState('');        
   const [apartmentNumber, setApartmentNumber] = useState('');
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {     
     e.preventDefault();
     setIsLoading(true);
-    
+
     try {
       if (isLogin) {
-        await login(email, password);
-        // Navigate based on user role (will be determined from API response)
-        navigate('/dashboard');
+        const user = await login(email, password);
+        // Navigate based on user role from API response
+        if (user.role === 'owner') {
+          navigate('/owner');
+        } else if (user.role === 'manager') {
+          navigate('/manager/dashboard');
+        } else if (user.role === 'renter') {
+          navigate('/renter/dashboard');
+        } else {
+          navigate('/'); // Default fallback
+        }
       } else {
         await register({
           email,
@@ -39,22 +47,33 @@ const Login = () => {
           buildingId,
           apartmentNumber: role === 'renter' ? apartmentNumber : undefined
         });
-        navigate('/dashboard');
+        
+        // After registration, get user from localStorage
+        const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+        if (storedUser.role === 'owner') {
+          navigate('/owner');
+        } else if (storedUser.role === 'manager') {
+          navigate('/manager/dashboard');
+        } else if (storedUser.role === 'renter') {
+          navigate('/renter/dashboard');
+        } else {
+          navigate('/');
+        }
       }
     } catch (error) {
-      console.error('Authentication failed:', error);
+      console.error('Authentication failed:', error);      
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">  
       <div className="max-w-md w-full">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-violet-500 to-purple-600 rounded-2xl mb-4">
-            <FaBuilding className="text-2xl text-white" />
+            <FaBuilding className="text-2xl text-white" /> 
           </div>
           <h1 className="text-3xl font-bold text-slate-900 mb-2">Ottalika</h1>
           <p className="text-slate-600">Smart Building Management System</p>
@@ -65,9 +84,9 @@ const Login = () => {
           <button
             onClick={() => setIsLogin(true)}
             className={`flex-1 py-2 rounded-md font-medium transition-colors ${
-              isLogin 
-                ? 'bg-violet-500 text-white' 
-                : 'text-slate-600 hover:text-slate-900'
+              isLogin
+                ? 'bg-violet-500 text-white'
+                : 'text-slate-600 hover:text-slate-900'    
             }`}
           >
             Sign In
@@ -75,9 +94,9 @@ const Login = () => {
           <button
             onClick={() => setIsLogin(false)}
             className={`flex-1 py-2 rounded-md font-medium transition-colors ${
-              !isLogin 
-                ? 'bg-violet-500 text-white' 
-                : 'text-slate-600 hover:text-slate-900'
+              !isLogin
+                ? 'bg-violet-500 text-white'
+                : 'text-slate-600 hover:text-slate-900'    
             }`}
           >
             Sign Up
@@ -87,13 +106,13 @@ const Login = () => {
         {/* Form Card */}
         <div className="card p-8 shadow-xl">
           <h2 className="text-2xl font-bold text-slate-900 mb-6">
-            {isLogin ? 'Welcome Back' : 'Create Account'}
+            {isLogin ? 'Welcome Back' : 'Create Account'}  
           </h2>
-          
+
           <form onSubmit={handleSubmit} className="space-y-4">
             {!isLogin && (
               <>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-4">   
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">
                       First Name
@@ -132,7 +151,7 @@ const Login = () => {
                       type="tel"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
-                      className="input-field pl-10"
+                      className="input-field pl-10"        
                       placeholder="+1234567890"
                     />
                   </div>
@@ -148,9 +167,9 @@ const Login = () => {
                     className="input-field"
                     required={!isLogin}
                   >
-                    <option value="renter">Renter</option>
+                    <option value="renter">Renter</option> 
                     <option value="manager">Manager</option>
-                    <option value="owner">Owner</option>
+                    <option value="owner">Owner</option>   
                   </select>
                 </div>
 
@@ -202,13 +221,13 @@ const Login = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="input-field pl-10"
-                  placeholder="Enter your password"
+                  placeholder="Enter your password"        
                   required
                 />
               </div>
               {isLogin && (
                 <p className="text-xs text-slate-500 mt-1">
-                  Demo: manager@ottalika.com / manager123
+                  Demo: manager@ottalika.com / manager123  
                 </p>
               )}
             </div>
@@ -221,9 +240,9 @@ const Login = () => {
                 isLoading ? 'opacity-70 cursor-not-allowed' : ''
               }`}
             >
-              {isLoading 
+              {isLoading
                 ? (isLogin ? 'Signing in...' : 'Creating account...')
-                : (isLogin ? 'Sign In' : 'Create Account')
+                : (isLogin ? 'Sign In' : 'Create Account') 
               }
             </button>
           </form>
@@ -236,7 +255,7 @@ const Login = () => {
                 <br />
                 👨‍💼 Manager: manager@ottalika.com / manager123
                 <br />
-                👑 Owner: owner@ottalika.com / owner123
+                👑 Owner: owner@ottalika.com / owner123  
                 <br />
                 👤 Renter: renter@ottalika.com / renter123
               </p>
