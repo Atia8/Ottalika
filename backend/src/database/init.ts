@@ -8,7 +8,15 @@ const setupDatabase = async () => {
       path.join(__dirname, 'setup.sql'),
       'utf8'
     );
-    
+    //split statements by semicolon
+    // const statements = sql
+    //   .split(';')
+    //   .map(s => s.trim())
+    //   .filter(s => s.length > 0);
+
+    // for (const stmt of statements) {
+    //   await pool.query(stmt);
+    // }
     await pool.query(sql);
     console.log('✅ Database tables created successfully');
     

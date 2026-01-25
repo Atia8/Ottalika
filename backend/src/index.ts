@@ -6,7 +6,7 @@ import cors from 'cors';
 import { pool } from './database/db';
 
 import ownerRoutes from './routes/ownerRoutes';
-
+import complaintRoutes from './routes/complaintRoutes';
 
 
 const app = express();
@@ -34,6 +34,8 @@ app.get('/api/health', async (req, res) => {
 // API Routes
 app.use('/api/owner', ownerRoutes);
 // app.use('/api/apartments', apartmentRoutes); // Add when you create this
+
+app.use('/api/owner/complaints', complaintRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
