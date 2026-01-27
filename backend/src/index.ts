@@ -11,6 +11,7 @@ import { pool } from './database/db'; // Her PostgreSQL
 import authRoutes from './routes/auth.routes'; // YOURS
 import managerRoutes from './routes/manager.routes'; // YOURS  
 import ownerRoutes from './routes/ownerRoutes'; // HERS
+import renterRoutes from './routes/renterRoutes';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -54,6 +55,7 @@ app.get('/api/health', async (req, res) => {
 app.use('/api/auth', authRoutes); // YOURS
 app.use('/api/manager', managerRoutes); // YOURS
 app.use('/api/owner', ownerRoutes); // HERS
+app.use('/api/renter', renterRoutes);
 
 // 404 handler (HERS)
 app.use('*', (req, res) => {

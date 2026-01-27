@@ -1,13 +1,13 @@
 // frontend/src/routes.tsx - FIXED VERSION
 import { createBrowserRouter } from "react-router-dom";
 import Login from "./pages/Login";
-import  Layout from "./Layout"; // Use your Layout component
+import Layout from "./Layout";
 
-// Her owner components
+// Owner components
 import { OwnerDashboard } from "./components/owner/OwnerDashboard";
 import { OwnerPayments } from "./components/owner/OwnerPayments";
 
-// Your manager components
+// Manager components
 import ManagerDashboard from "./components/manager/Dashboard";
 import ManagerRenters from "./components/manager/Renters";
 import ManagerBills from "./components/manager/Bills";
@@ -15,18 +15,26 @@ import ManagerMaintenance from "./components/manager/Maintenance";
 import ManagerPayments from "./components/manager/Payments";
 import ManagerSettings from "./components/manager/Settings";
 import ManagerMessages from "./components/manager/Messages";
+import AdvancedAnalytics from './components/manager/AdvancedAnalytics';
 
-// Your renter components
-import RenterDashboard from "./pages/renter/dashboard.js";
-import RenterProfile from "./pages/renter/profile.js";
-import RenterPayments from "./pages/renter/payment.js";
-import RenterComplaints from "./pages/renter/complaint.js";
-import RenterMessages from "./pages/renter/messages.js";
+// Renter components
+// Add to your routes configuration
+import RenterDashboard from './components/renter/RenterDashboard';
+import RenterPayments from './components/renter/RenterPayments';
+import RenterComplaints from './components/renter/RenterComplaints';
+import RenterProfile from './components/renter/RenterProfile';
+import RenterMessages from './components/renter/RenterMessages';
 
-// Protected route wrapper
-const ProtectedRoute = ({ children, role }: { children: React.ReactNode, role?: string }) => {
-  return <>{children}</>;
-};
+const renterRoutes = [
+  { path: '/renter/dashboard', element: <RenterDashboard /> },
+  { path: '/renter/payments', element: <RenterPayments /> },
+  { path: '/renter/complaints', element: <RenterComplaints /> },
+  { path: '/renter/profile', element: <RenterProfile /> },
+  { path: '/renter/messages', element: <RenterMessages /> },
+];
+
+// Import ProtectedRoute component (create this file)
+import ProtectedRoute from "./components/manager/ProtectedRoute";
 
 export const router = createBrowserRouter([
   // Public routes
@@ -35,77 +43,102 @@ export const router = createBrowserRouter([
     element: <Login />,
   },
   
-  // Main layout route
+  // Home/landing page redirect to login
   {
     path: "/",
-    element: <Layout />, // Default role, will be dynamic based on auth
+    element: <Login />, // Changed: Direct to login instead of separate page
+  },
+  
+  // PROTECTED ROUTES - using Layout
+  {
+    path: "/",
+    element: (
+      <ProtectedRoute>
+        <Layout />
+      </ProtectedRoute>
+    ),
     children: [
-      // Home/landing
+      // Redirect from root to appropriate dashboard based on user role
       {
         index: true,
-        element: <div>Welcome to Ottalika</div>,
+        element: <div>Loading...</div>, // This will be redirected by ProtectedRoute
       },
       
-      // Owner routes (from her)
+      // Owner routes
       {
         path: "owner",
-        element: <ProtectedRoute role="owner"><OwnerDashboard /></ProtectedRoute>,
+        element: <OwnerDashboard />,
       },
       {
         path: "owner/payments",
-        element: <ProtectedRoute role="owner"><OwnerPayments /></ProtectedRoute>,
+        element: <OwnerPayments />,
       },
       
-      // Manager routes (yours)
+      // Manager routes
       {
         path: "manager/dashboard",
-        element: <ProtectedRoute role="manager"><ManagerDashboard /></ProtectedRoute>,
+        element: <ManagerDashboard />,
       },
       {
         path: "manager/renters",
-        element: <ProtectedRoute role="manager"><ManagerRenters /></ProtectedRoute>,
+        element: <ManagerRenters />,
       },
       {
         path: "manager/bills",
-        element: <ProtectedRoute role="manager"><ManagerBills /></ProtectedRoute>,
+        element: <ManagerBills />,
       },
       {
         path: "manager/maintenance",
-        element: <ProtectedRoute role="manager"><ManagerMaintenance /></ProtectedRoute>,
+        element: <ManagerMaintenance />,
       },
       {
         path: "manager/payments",
-        element: <ProtectedRoute role="manager"><ManagerPayments /></ProtectedRoute>,
+        element: <ManagerPayments />,
+      },
+      {
+        path: "manager/analytics", 
+        element: <AdvancedAnalytics />,
       },
       {
         path: "manager/settings",
-        element: <ProtectedRoute role="manager"><ManagerSettings /></ProtectedRoute>,
+        element: <ManagerSettings />,
       },
       {
         path: "manager/messages",
-        element: <ProtectedRoute role="manager"><ManagerMessages /></ProtectedRoute>,
+        element: <ManagerMessages />,
       },
       
-      // Renter routes (yours)
+      // Renter routes
       {
         path: "renter/dashboard",
-        element: <ProtectedRoute role="renter"><RenterDashboard /></ProtectedRoute>,
+        element: <RenterDashboard />,
       },
       {
         path: "renter/profile",
-        element: <ProtectedRoute role="renter"><RenterProfile /></ProtectedRoute>,
+        element: <RenterProfile />,
       },
       {
         path: "renter/payments",
-        element: <ProtectedRoute role="renter"><RenterPayments /></ProtectedRoute>,
+        element: <RenterPayments />,
       },
       {
         path: "renter/complaints",
-        element: <ProtectedRoute role="renter"><RenterComplaints /></ProtectedRoute>,
+        element: <RenterComplaints />,
       },
       {
         path: "renter/messages",
-        element: <ProtectedRoute role="renter"><RenterMessages /></ProtectedRoute>,
+        element: <RenterMessages />,
+      },
+      
+      // 404 catch-all
+      {
+        path: "*",
+        element: <div className="p-8 text-center">
+          <h1 className="text-3xl font-bold mb-4">404 - Page Not Found</h1>
+          <a href="/" className="px-6 py-3 bg-violet-600 text-white rounded-lg hover:bg-violet-700">
+            Go Home
+          </a>
+        </div>,
       },
     ],
   },

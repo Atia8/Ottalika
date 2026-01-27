@@ -10,6 +10,7 @@ import {
   FaCheckCircle, FaEnvelope, FaCaretRight, FaBell, FaUserCircle,
   FaSearch, FaCog, FaUser
 } from 'react-icons/fa';
+import { FaChartLine } from 'react-icons/fa';
 
 const Layout: React.FC = () => {
   const { user, logout } = useAuth();
@@ -25,7 +26,8 @@ const Layout: React.FC = () => {
     { id: 'maintenance', name: 'Maintenance', icon: <FaTools />, path: '/manager/maintenance' },
     { id: 'payments', name: 'Payments', icon: <FaCheckCircle />, path: '/manager/payments' },
     { id: 'messages', name: 'Messages', icon: <FaEnvelope />, path: '/manager/messages' },
-    { id: 'settings', name: 'Settings', icon: <FaCog />, path: '/manager/settings' },
+    { id: 'analytics', name: 'Analytics', icon: <FaChartLine />, path: '/manager/analytics' },
+    
   ];
 
   // Define Nav Items for Renters (Matching her pages)
@@ -259,36 +261,7 @@ const ownerNav = [
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Desktop Header */}
-        <header className="hidden lg:flex sticky top-0 z-10 bg-white border-b border-slate-200 p-6 items-center justify-between shadow-sm">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">
-              {getActivePageTitle()}
-            </h1>
-            <p className="text-slate-600 text-sm mt-1">
-              Welcome back, {user?.firstName} {user?.lastName}
-            </p>
-          </div>
-          <div className="flex items-center space-x-4">
-            <button 
-              className="p-2 hover:bg-slate-100 rounded-full relative transition-colors"
-              aria-label="Notifications"
-            >
-              <FaBell className="text-xl text-slate-600" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full"></span>
-            </button>
-            
-            <div className="flex items-center space-x-3">
-              <div className="text-right hidden md:block">
-                <p className="font-medium text-slate-900">{user?.firstName} {user?.lastName}</p>
-                <p className="text-sm text-slate-500 capitalize">{user?.role}</p>
-              </div>
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-600 rounded-full flex items-center justify-center text-white font-bold shadow-sm">
-                {user?.firstName?.charAt(0)}
-              </div>
-            </div>
-          </div>
-        </header>
+        
 
         {/* Main Content - Render nested routes here */}
         <main className="flex-1 p-4 md:p-6 lg:p-8 pt-20 lg:pt-6 overflow-y-auto">
