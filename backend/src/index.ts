@@ -7,7 +7,7 @@ import { pool } from './database/db';
 
 import ownerRoutes from './routes/ownerRoutes';
 import complaintRoutes from './routes/complaintRoutes';
-
+import billRoutes from './routes/billRoutes';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -36,6 +36,7 @@ app.use('/api/owner', ownerRoutes);
 // app.use('/api/apartments', apartmentRoutes); // Add when you create this
 
 app.use('/api/owner/complaints', complaintRoutes);
+app.use('/api/bills', billRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {

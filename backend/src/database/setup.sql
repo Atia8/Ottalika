@@ -4,8 +4,9 @@
 -- DROP TABLE IF EXISTS apartments CASCADE;
 -- DROP TABLE IF EXISTS renters CASCADE;
 
-DROP TABLE IF EXISTS complaint_resolution CASCADE;
-DROP TABLE IF EXISTS complaints CASCADE;
+-- DROP TABLE IF EXISTS complaint_resolution CASCADE;
+-- DROP TABLE IF EXISTS complaints CASCADE;
+ --DROP TABLE IF EXISTS bills CASCADE;
 
 -- Create renters table (basic info only)
 CREATE TABLE IF NOT EXISTS renters (
@@ -79,6 +80,24 @@ CREATE TABLE IF NOT EXISTS complaint_resolution (
 );
 
 
+CREATE TABLE  IF NOT EXISTS bills (
+    id SERIAL PRIMARY KEY,
+    manager_id INT ,
+
+    title VARCHAR(100) NOT NULL,
+    amount NUMERIC(10,2) NOT NULL,
+
+    due_date DATE NOT NULL,
+    paid_date DATE,
+
+    -- status VARCHAR(20) DEFAULT 'upcoming', -- upcoming | paid | pending | late
+   status VARCHAR(20),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+
+
+
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_payments_month ON payments(month);
 CREATE INDEX IF NOT EXISTS idx_payments_apartment ON payments(apartment_id);
@@ -88,6 +107,10 @@ CREATE INDEX IF NOT EXISTS idx_apartments_status ON apartments(status);
 CREATE INDEX IF NOT EXISTS idx_apartments_renter ON apartments(current_renter_id);
 CREATE INDEX IF NOT EXISTS idx_renters_email ON renters(email);
 CREATE INDEX IF NOT EXISTS idx_renters_status ON renters(status);
+
+CREATE INDEX IF NOT EXISTS idx_bills_status ON bills(status);
+CREATE INDEX IF NOT EXISTS idx_bills_due_date ON bills(due_date);
+CREATE INDEX IF NOT EXISTS idx_bills_manager_id ON bills(manager_id);
 
 -- CREATE INDEX IF NOT EXISTS idx_complaints_apartment ON complaints(apartment_id);
 -- CREATE INDEX IF NOT EXISTS idx_complaints_renter ON complaints(renter_id);
@@ -147,19 +170,38 @@ CREATE INDEX IF NOT EXISTS idx_renters_status ON renters(status);
 
 
 
-INSERT INTO complaints (title, description, category, priority, apartment_id, renter_id)
-VALUES
-('Leaky faucet', 'Kitchen faucet is dripping continuously', 'plumbing', 'medium', 1, 1),
-('Broken living room light', 'Ceiling light not working', 'electric', 'high', 2, 2),
-('Clogged bathroom drain', 'Water is not draining properly', 'plumbing', 'medium', 4, 3),
-('Heater not working', 'Central heater not turning on', 'electric', 'high', 5, 4),
-('Door lock issue', 'Front door lock is jammed', 'general', 'medium', 2, 2);
+-- INSERT INTO complaints (title, description, category, priority, apartment_id, renter_id)
+-- VALUES
+-- ('Leaky faucet', 'Kitchen faucet is dripping continuously', 'plumbing', 'medium', 1, 1),
+-- ('Broken living room light', 'Ceiling light not working', 'electric', 'high', 2, 2),
+-- ('Clogged bathroom drain', 'Water is not draining properly', 'plumbing', 'medium', 4, 3),
+-- ('Heater not working', 'Central heater not turning on', 'electric', 'high', 5, 4),
+-- ('Door lock issue', 'Front door lock is jammed', 'general', 'medium', 2, 2);
 
 
-INSERT INTO complaint_resolution (complaint_id, manager_confirmed, renter_confirmed, manager_id)
-VALUES
-(1, FALSE, FALSE, NULL),
-(2, TRUE, FALSE, NULL),
-(3, FALSE, FALSE, NULL),
-(4, FALSE, FALSE, NULL),
-(5, TRUE, TRUE, NULL);
+-- INSERT INTO complaint_resolution (complaint_id, manager_confirmed, renter_confirmed, manager_id)
+-- VALUES
+-- (1, FALSE, FALSE, NULL),
+-- (2, TRUE, FALSE, NULL),
+-- (3, FALSE, FALSE, NULL),
+-- (4, FALSE, FALSE, NULL),
+-- (5, TRUE, TRUE, NULL);
+
+INSERT INTO bills (manager_id, title, amount, due_date, paid_date) VALUES
+--Paid on time
+(1, 'Electricity', 15000, '2026-01-05', '2026-01-04'),
+
+-- Paid late
+(1, 'Water', 6000, '2026-01-07', '2026-01-12'),
+
+-- Pending (due date passed, not paid)
+(1, 'Gas', 4000, '2026-01-05', NULL),
+
+-- Upcoming (due date in future)
+(2, 'Internet', 3000, '2026-01-29', NULL),
+
+-- Another paid bill
+(2, 'Maintenance', 10000, '2026-01-10', '2026-01-10'),
+
+(2, 'Lift', 10000, '2026-01-30', NULL);
+
