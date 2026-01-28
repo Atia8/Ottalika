@@ -7,7 +7,9 @@
     "start": "node dist/index.js",
     "dev": "nodemon src/index.ts",
     "db:init": "npx ts-node src/database/init.ts",
-    "db:reset": "ts-node src/database/reset.ts"
+    "db:reset": "ts-node src/database/reset.ts",
+
+    "db:migrate": "npx ts-node src/database/runMigration.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.19",
