@@ -169,7 +169,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
   }
 });
 
-// ==================== FIXED COMPLAINTS/MAINTENANCE ENDPOINTS ====================
+// ==================== COMPLAINTS/MAINTENANCE ENDPOINTS ====================
 
 // GET /api/manager/complaints - Get all complaints
 router.get('/complaints', async (req: Request, res: Response) => {
@@ -194,8 +194,8 @@ router.get('/complaints', async (req: Request, res: Response) => {
         mr.actual_cost,
         mr.completed_at,
         mr.notes,
-        mr.manager_marked_resolved,
-        mr.renter_marked_resolved,
+        COALESCE(mr.manager_marked_resolved, FALSE) as manager_marked_resolved,
+        COALESCE(mr.renter_marked_resolved, FALSE) as renter_marked_resolved,
         mr.resolution,
         mr.resolution_notes,
         mr.assigned_at,
@@ -218,9 +218,13 @@ router.get('/complaints', async (req: Request, res: Response) => {
     let paramCount = 0;
     
     if (status && status !== 'all') {
-      paramCount++;
-      params.push(status);
-      query += ` AND mr.status = $${paramCount}`;
+      if (status === 'needs_confirmation') {
+        query += ` AND COALESCE(mr.manager_marked_resolved, FALSE) = TRUE AND COALESCE(mr.renter_marked_resolved, FALSE) = FALSE`;
+      } else {
+        paramCount++;
+        params.push(status);
+        query += ` AND mr.status = $${paramCount}`;
+      }
     }
     
     if (priority && priority !== 'all') {
@@ -270,75 +274,10 @@ router.get('/complaints', async (req: Request, res: Response) => {
     
   } catch (error: any) {
     console.error('❌ Get complaints error:', error.message);
-    
-    // Fallback to mock data
-    const mockComplaints = [
-      {
-        id: '1',
-        renterName: 'John Doe',
-        apartment: '101',
-        type: 'plumbing',
-        title: 'Water leakage in bathroom',
-        description: 'There is a constant water leakage from the bathroom tap. Need urgent repair.',
-        status: 'pending',
-        priority: 'high',
-        createdAt: '2024-01-05',
-        updatedAt: '2024-01-05',
-        renterPhone: '+1234567890',
-        renterEmail: 'john@example.com',
-        floor: '1',
-        manager_marked_resolved: false,
-        renter_marked_resolved: false,
-        building_name: 'Main Building'
-      },
-      {
-        id: '2',
-        renterName: 'Jane Smith',
-        apartment: '102',
-        type: 'electrical',
-        title: 'Power outlet not working',
-        description: 'The power outlet in the living room stopped working. Check wiring and socket.',
-        status: 'in_progress',
-        priority: 'medium',
-        createdAt: '2024-01-04',
-        updatedAt: '2024-01-05',
-        assignedTo: 'Maintenance Team',
-        renterPhone: '+1987654321',
-        renterEmail: 'jane@example.com',
-        floor: '1',
-        manager_marked_resolved: false,
-        renter_marked_resolved: false,
-        building_name: 'Main Building'
-      },
-      {
-        id: '3',
-        renterName: 'Alice Brown',
-        apartment: '201',
-        type: 'elevator',
-        title: 'Elevator making strange noise',
-        description: 'The elevator makes loud grinding noises when moving between floors.',
-        status: 'completed',
-        priority: 'urgent',
-        createdAt: '2024-01-01',
-        updatedAt: '2024-01-04',
-        assignedTo: 'Technical Team',
-        renterPhone: '+1122334455',
-        renterEmail: 'alice@example.com',
-        floor: '2',
-        manager_marked_resolved: true,
-        renter_marked_resolved: true,
-        resolution: 'Elevator motor replaced and lubricated',
-        resolution_notes: 'Full maintenance completed',
-        building_name: 'Main Building'
-      }
-    ];
-    
-    res.status(200).json({
-      success: true,
-      data: {
-        complaints: mockComplaints,
-        total: mockComplaints.length
-      }
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch complaints',
+      error: error.message
     });
   }
 });
@@ -467,6 +406,70 @@ router.post('/complaints/:id/assign', async (req: Request, res: Response) => {
   }
 });
 
+// PUT /api/manager/complaints/:id/mark-resolved - Manager marks as resolved
+router.put('/complaints/:id/mark-resolved', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { resolution, resolution_notes } = req.body;
+
+    console.log(`✅ Manager marking complaint ${id} as resolved`);
+
+    // Validate required fields
+    if (!resolution || resolution.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Resolution details are required'
+      });
+    }
+
+    // Check if complaint exists
+    const checkResult = await dbQuery(
+      'SELECT id, status FROM maintenance_requests WHERE id = $1',
+      [id]
+    );
+
+    if (checkResult.rows.length === 0) {
+      console.log(`❌ Complaint ${id} not found`);
+      return res.status(404).json({
+        success: false,
+        message: 'Complaint not found'
+      });
+    }
+
+    // Update complaint: manager marks as resolved
+    const result = await dbQuery(`
+      UPDATE maintenance_requests 
+      SET 
+        status = 'completed',
+        manager_marked_resolved = TRUE,
+        resolution = $1,
+        resolution_notes = $2,
+        completed_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3
+      RETURNING *
+    `, [resolution, resolution_notes || '', id]);
+
+    console.log(`✅ Complaint ${id} marked as resolved by manager`);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Complaint marked as resolved. Waiting for renter confirmation.',
+        complaint: result.rows[0]
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Mark resolved error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark complaint as resolved',
+      error: error.message
+    });
+  }
+});
+
 // GET /api/manager/complaints/stats - Get complaint statistics
 router.get('/complaints/stats', async (req: Request, res: Response) => {
   try {
@@ -517,250 +520,98 @@ router.get('/complaints/stats', async (req: Request, res: Response) => {
   }
 });
 
-// ==================== FIXED UTILITY BILLS ENDPOINTS ====================
-
-// GET /api/manager/bills/utility - Get utility bills
-router.get('/bills/utility', async (req: Request, res: Response) => {
+// POST /api/manager/complaints - Manager can create complaint
+router.post('/complaints', async (req: Request, res: Response) => {
   try {
-    console.log('📡 Fetching utility bills...');
-    const { status, type } = req.query;
-    
-    let query = `
-      SELECT 
-        ub.*,
-        b.name as building_name,
-        b.address as building_address
-      FROM utility_bills ub
-      LEFT JOIN buildings b ON ub.building_id = b.id
-      WHERE 1=1
-    `;
-    
-    const params: any[] = [];
-    let paramCount = 0;
-    
-    if (status && status !== 'all') {
-      paramCount++;
-      params.push(status);
-      query += ` AND ub.status = $${paramCount}`;
-    }
-    
-    if (type && type !== 'all') {
-      paramCount++;
-      params.push(type);
-      query += ` AND ub.type = $${paramCount}`;
-    }
-    
-    query += ' ORDER BY ub.due_date ASC';
-    
-    console.log('📊 Executing utility bills query...');
-    const result = await dbQuery(query, params);
-    
-    console.log(`✅ Found ${result.rows.length} utility bills`);
-    
-    // Calculate summary
-    const summary = {
-      totalPending: result.rows
-        .filter((b: any) => b.status === 'pending')
-        .reduce((sum: number, b: any) => sum + parseFloat(b.amount || 0), 0),
-      totalPaid: result.rows
-        .filter((b: any) => b.status === 'paid')
-        .reduce((sum: number, b: any) => sum + parseFloat(b.amount || 0), 0),
-      overdueBills: result.rows.filter((b: any) => b.status === 'overdue').length,
-      nextDueDate: result.rows.length > 0 
-        ? result.rows.reduce((min: any, b: any) => 
-            b.status === 'pending' && new Date(b.due_date) < new Date(min.due_date) ? b : min, 
-            result.rows[0]
-          ).due_date
-        : null
-    };
-    
-    res.status(200).json({
-      success: true,
-      data: {
-        bills: result.rows,
-        summary: summary,
-        total: result.rowCount
-      }
-    });
-    
-  } catch (error: any) {
-    console.error('❌ Get utility bills error:', error.message);
-    
-    // Fallback to mock data
-    const mockBills = [
-      {
-        id: 1,
-        type: 'electricity',
-        building_name: 'Green Valley Apartments',
-        amount: 15000,
-        due_date: '2025-01-10',
-        status: 'pending',
-        provider: 'National Grid',
-        account_number: 'NG-123456',
-        month: 'January 2025',
-        consumption: '1200 kWh',
-        description: 'Monthly electricity bill'
-      },
-      {
-        id: 2,
-        type: 'water',
-        building_name: 'Green Valley Apartments',
-        amount: 8000,
-        due_date: '2025-01-15',
-        status: 'pending',
-        provider: 'Water Corporation',
-        account_number: 'WC-789012',
-        month: 'January 2025',
-        consumption: '150 m³',
-        description: 'Water utility bill'
-      },
-      {
-        id: 3,
-        type: 'cleaning',
-        building_name: 'Green Valley Apartments',
-        amount: 20000,
-        due_date: '2025-01-20',
-        status: 'pending',
-        provider: 'CleanPro Services',
-        account_number: 'CP-345678',
-        month: 'January 2025',
-        description: 'Monthly cleaning services'
-      },
-      {
-        id: 4,
-        type: 'security',
-        building_name: 'Green Valley Apartments',
-        amount: 15000,
-        due_date: '2025-01-25',
-        status: 'paid',
-        provider: 'SecureGuard',
-        account_number: 'SG-901234',
-        month: 'January 2025',
-        description: 'Security services'
-      }
-    ];
-    
-    const summary = {
-      totalPending: 43000,
-      totalPaid: 15000,
-      overdueBills: 0,
-      nextDueDate: '2025-01-10'
-    };
-    
-    res.status(200).json({
-      success: true,
-      data: {
-        bills: mockBills,
-        summary: summary,
-        total: mockBills.length
-      }
-    });
-  }
-});
-
-// POST /api/manager/bills/utility - Create new utility bill
-router.post('/bills/utility', async (req: Request, res: Response) => {
-  try {
-    const { 
-      type, 
-      building_id, 
-      amount, 
-      due_date, 
-      provider, 
-      account_number, 
+    const {
+      apartment_id,
+      renter_id,
+      title,
       description,
-      consumption 
+      category,
+      priority = 'medium',
+      assigned_to
     } = req.body;
-    
-    console.log('📝 Creating new utility bill:', { type, building_id, amount, due_date });
-    
-    // Validate required fields
-    if (!type || !building_id || !amount || !due_date) {
-      return res.status(400).json({
-        success: false,
-        message: 'Type, building, amount, and due date are required'
-      });
-    }
-    
-    const month = new Date(due_date).toLocaleDateString('en-US', { 
-      month: 'long', 
-      year: 'numeric' 
-    });
-    
+
+    console.log('📝 Creating new complaint as manager');
+
     const result = await dbQuery(`
-      INSERT INTO utility_bills (
-        type, building_id, amount, due_date, provider, 
-        account_number, description, month, consumption, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
-      RETURNING id, type, amount, due_date, status
-    `, [type, building_id, amount, due_date, provider, account_number, description, month, consumption]);
-    
-    console.log(`✅ Utility bill created with ID: ${result.rows[0].id}`);
-    
+      INSERT INTO maintenance_requests (
+        apartment_id,
+        renter_id,
+        title,
+        description,
+        category,
+        priority,
+        status,
+        assigned_to,
+        manager_marked_resolved,
+        renter_marked_resolved,
+        created_at,
+        updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, FALSE, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      RETURNING *
+    `, [apartment_id, renter_id, title, description, category, priority, assigned_to]);
+
     res.status(201).json({
       success: true,
       data: {
-        message: 'Utility bill created successfully',
-        bill: result.rows[0]
+        complaint: result.rows[0],
+        message: 'Complaint created successfully'
       }
     });
-    
+
   } catch (error: any) {
-    console.error('❌ Create utility bill error:', error.message);
+    console.error('Create complaint error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create utility bill'
+      message: 'Failed to create complaint',
+      error: error.message
     });
   }
 });
 
-// POST /api/manager/bills/utility/:id/pay - Mark utility bill as paid
-router.post('/bills/utility/:id/pay', async (req: Request, res: Response) => {
+// GET /api/manager/complaints/needs-confirmation - Get complaints needing renter confirmation
+router.get('/complaints/needs-confirmation', async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const { paid_amount, paid_date } = req.body;
-    
-    console.log(`💰 Marking utility bill ${id} as paid`);
-    
     const result = await dbQuery(`
-      UPDATE utility_bills 
-      SET 
-        status = 'paid',
-        paid_amount = COALESCE($1, amount),
-        paid_date = COALESCE($2, CURRENT_DATE),
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $3
-      RETURNING id, type, amount, status, paid_date
-    `, [paid_amount, paid_date, id]);
-    
-    if (result.rows.length === 0) {
-      console.log(`❌ Utility bill ${id} not found`);
-      return res.status(404).json({
-        success: false,
-        message: 'Utility bill not found'
-      });
-    }
-    
-    console.log(`✅ Utility bill ${id} marked as paid`);
-    
+      SELECT 
+        mr.*,
+        r.name as renter_name,
+        r.email as renter_email,
+        r.phone as renter_phone,
+        a.apartment_number,
+        a.floor,
+        b.name as building_name
+      FROM maintenance_requests mr
+      JOIN renters r ON mr.renter_id = r.id
+      JOIN apartments a ON mr.apartment_id = a.id
+      JOIN buildings b ON a.building_id = b.id
+      WHERE COALESCE(mr.manager_marked_resolved, FALSE) = TRUE 
+        AND COALESCE(mr.renter_marked_resolved, FALSE) = FALSE
+        AND mr.status = 'completed'
+      ORDER BY mr.completed_at DESC
+    `);
+
     res.status(200).json({
       success: true,
       data: {
-        message: 'Utility bill marked as paid',
-        bill: result.rows[0]
+        complaints: result.rows,
+        count: result.rowCount
       }
     });
-    
+
   } catch (error: any) {
-    console.error('❌ Pay utility bill error:', error.message);
+    console.error('Get needs confirmation error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update utility bill'
+      message: 'Failed to get complaints needing confirmation',
+      error: error.message
     });
   }
 });
 
-// ==================== FIXED PAYMENTS ENDPOINTS ====================
+// ==================== PAYMENTS ENDPOINTS ====================
 
 // GET /api/manager/payments - Get rent payments
 router.get('/payments', async (req: Request, res: Response) => {
@@ -1274,25 +1125,9 @@ router.get('/bills', async (req: Request, res: Response) => {
       LIMIT 20
     `);
     
-    // Get utility bills
-    const utilityBillsResult = await dbQuery(`
-      SELECT 
-        ub.*,
-        b.name as building_name,
-        'utility' as bill_type
-      FROM utility_bills ub
-      LEFT JOIN buildings b ON ub.building_id = b.id
-      WHERE ub.status = 'pending'
-      ORDER BY ub.due_date ASC
-      LIMIT 20
-    `);
+    console.log(`✅ Found ${rentBillsResult.rows.length} rent bills`);
     
-    console.log(`✅ Found ${rentBillsResult.rows.length} rent bills and ${utilityBillsResult.rows.length} utility bills`);
-    
-    const allBills = [
-      ...rentBillsResult.rows.map((bill: any) => ({ ...bill, bill_type: 'rent' })),
-      ...utilityBillsResult.rows.map((bill: any) => ({ ...bill, bill_type: 'utility' }))
-    ];
+    const allBills = rentBillsResult.rows.map((bill: any) => ({ ...bill, bill_type: 'rent' }));
     
     const summary = {
       totalPending: allBills
@@ -1327,7 +1162,7 @@ router.get('/bills', async (req: Request, res: Response) => {
   }
 });
 
-// ==================== MARK BILL AS PAID (Alternative endpoint) ====================
+// ==================== MARK BILL AS PAID ====================
 router.post('/bills/:id/pay', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -1335,62 +1170,35 @@ router.post('/bills/:id/pay', async (req: Request, res: Response) => {
     
     console.log(`💰 Marking bill ${id} as paid with method: ${paymentMethod}`);
     
-    // Check if it's a rent payment or utility bill
-    const isRentPayment = id.startsWith('PAY') || parseInt(id) <= 1000; // Simple heuristic
+    // Update payment status
+    const paymentResult = await dbQuery(`
+      UPDATE payments 
+      SET 
+        status = 'paid',
+        payment_method = $1,
+        transaction_id = $2,
+        paid_at = CURRENT_TIMESTAMP
+      WHERE id = $3
+      RETURNING id, amount, apartment_id, renter_id
+    `, [paymentMethod, transactionId, id]);
     
-    if (isRentPayment) {
-      // Update payment status
-      const paymentResult = await dbQuery(`
-        UPDATE payments 
-        SET 
-          status = 'paid',
-          payment_method = $1,
-          transaction_id = $2,
-          paid_at = CURRENT_TIMESTAMP
-        WHERE id = $3
-        RETURNING id, amount, apartment_id, renter_id
-      `, [paymentMethod, transactionId, id.replace('PAY-', '')]);
-      
-      if (paymentResult.rows.length === 0) {
-        console.log(`❌ Payment ${id} not found`);
-        return res.status(404).json({
-          success: false,
-          message: 'Payment not found'
-        });
-      }
-      
-      // Create payment confirmation
-      await dbQuery(`
-        INSERT INTO payment_confirmations (payment_id, manager_id, status, verified_at)
-        VALUES ($1, 1, 'verified', CURRENT_TIMESTAMP)
-        ON CONFLICT (payment_id) DO UPDATE 
-        SET status = 'verified', verified_at = CURRENT_TIMESTAMP
-      `, [id.replace('PAY-', '')]);
-      
-      console.log(`✅ Rent payment ${id} marked as paid and verified`);
-      
-    } else {
-      // Update utility bill status
-      const utilityResult = await dbQuery(`
-        UPDATE utility_bills 
-        SET 
-          status = 'paid',
-          paid_date = CURRENT_DATE,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-        RETURNING id, type, amount
-      `, [id]);
-      
-      if (utilityResult.rows.length === 0) {
-        console.log(`❌ Utility bill ${id} not found`);
-        return res.status(404).json({
-          success: false,
-          message: 'Utility bill not found'
-        });
-      }
-      
-      console.log(`✅ Utility bill ${id} marked as paid`);
+    if (paymentResult.rows.length === 0) {
+      console.log(`❌ Payment ${id} not found`);
+      return res.status(404).json({
+        success: false,
+        message: 'Payment not found'
+      });
     }
+    
+    // Create payment confirmation
+    await dbQuery(`
+      INSERT INTO payment_confirmations (payment_id, manager_id, status, verified_at)
+      VALUES ($1, 1, 'verified', CURRENT_TIMESTAMP)
+      ON CONFLICT (payment_id) DO UPDATE 
+      SET status = 'verified', verified_at = CURRENT_TIMESTAMP
+    `, [id]);
+    
+    console.log(`✅ Payment ${id} marked as paid and verified`);
     
     res.status(200).json({
       success: true,
@@ -1463,183 +1271,6 @@ analyticsRouter.get('/payment-patterns', async (req: Request, res: Response) => 
 
 // Mount analytics router
 router.use('/analytics', analyticsRouter);
-// ==================== FIXED COMPLAINT ENDPOINTS ====================
-
-// POST /api/manager/complaints - Manager can create complaint
-router.post('/complaints', async (req: Request, res: Response) => {
-  try {
-    const {
-      apartment_id,
-      renter_id,
-      title,
-      description,
-      category,
-      priority = 'medium',
-      assigned_to
-    } = req.body;
-
-    console.log('📝 Creating new complaint as manager');
-
-    const result = await dbQuery(`
-      INSERT INTO maintenance_requests (
-        apartment_id,
-        renter_id,
-        title,
-        description,
-        category,
-        priority,
-        status,
-        assigned_to,
-        created_at,
-        updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      RETURNING *
-    `, [apartment_id, renter_id, title, description, category, priority, assigned_to]);
-
-    res.status(201).json({
-      success: true,
-      data: {
-        complaint: result.rows[0],
-        message: 'Complaint created successfully'
-      }
-    });
-
-  } catch (error: any) {
-    console.error('Create complaint error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create complaint'
-    });
-  }
-});
-
-// PUT /api/manager/complaints/:id/mark-resolved - Manager marks as resolved
-router.put('/complaints/:id/mark-resolved', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { resolution, resolution_notes } = req.body;
-
-    console.log(`✅ Manager marking complaint ${id} as resolved`);
-
-    const result = await dbQuery(`
-      UPDATE maintenance_requests 
-      SET 
-        status = 'completed',
-        manager_marked_resolved = TRUE,
-        resolution = $1,
-        resolution_notes = $2,
-        completed_at = CURRENT_TIMESTAMP,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $3
-      RETURNING *
-    `, [resolution, resolution_notes, id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Complaint not found'
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: {
-        message: 'Complaint marked as resolved. Waiting for renter confirmation.',
-        complaint: result.rows[0]
-      }
-    });
-
-  } catch (error: any) {
-    console.error('Mark resolved error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to mark complaint as resolved'
-    });
-  }
-});
-
-// GET /api/manager/complaints/needs-confirmation - Get complaints needing renter confirmation
-router.get('/complaints/needs-confirmation', async (req: Request, res: Response) => {
-  try {
-    const result = await dbQuery(`
-      SELECT 
-        mr.*,
-        r.name as renter_name,
-        r.email as renter_email,
-        r.phone as renter_phone,
-        a.apartment_number,
-        a.floor,
-        b.name as building_name
-      FROM maintenance_requests mr
-      JOIN renters r ON mr.renter_id = r.id
-      JOIN apartments a ON mr.apartment_id = a.id
-      JOIN buildings b ON a.building_id = b.id
-      WHERE mr.manager_marked_resolved = TRUE 
-        AND mr.renter_marked_resolved = FALSE
-        AND mr.status = 'completed'
-      ORDER BY mr.completed_at DESC
-    `);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        complaints: result.rows,
-        count: result.rowCount
-      }
-    });
-
-  } catch (error: any) {
-    console.error('Get needs confirmation error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get complaints needing confirmation'
-    });
-  }
-});
-
-router.put('/complaints/:id/mark-resolved', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { resolution, resolution_notes } = req.body;
-
-    console.log(`✅ Manager marking complaint ${id} as resolved`);
-
-    const result = await dbQuery(`
-      UPDATE maintenance_requests 
-      SET 
-        status = 'completed',
-        manager_marked_resolved = TRUE,
-        resolution = $1,
-        resolution_notes = $2,
-        completed_at = CURRENT_TIMESTAMP,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $3
-      RETURNING *
-    `, [resolution, resolution_notes, id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Complaint not found'
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: {
-        message: 'Complaint marked as resolved. Waiting for renter confirmation.',
-        complaint: result.rows[0]
-      }
-    });
-
-  } catch (error: any) {
-    console.error('Mark resolved error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to mark complaint as resolved'
-    });
-  }
-});
 
 // ==================== EXPORT ROUTER ====================
 export default router;

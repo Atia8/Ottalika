@@ -29,8 +29,8 @@ const authenticateRenter = async (req: Request, res: Response, next: Function) =
       });
     }
     
-    // For demo, use user ID 3 (demo renter)
-    (req as any).renterId = 3; // Demo renter ID
+    // For demo, use user ID 3 (demo renter) or extract from token
+    (req as any).renterId = 6; // Demo renter ID (the last one from your seed data)
     next();
   } catch (error) {
     res.status(401).json({
@@ -90,14 +90,8 @@ router.get('/dashboard', async (req: Request, res: Response) => {
         AND status IN ('pending', 'in_progress')
     `, [renterId]);
     
-    // Get unread messages count
-    const messagesResult = await dbQuery(`
-      SELECT COUNT(*) as unread_count
-      FROM messages 
-      WHERE renter_id = $1 
-        AND is_read = false
-      AND created_at > CURRENT_DATE - INTERVAL '30 days'
-    `, [renterId]);
+    // Get unread messages count (mock for now)
+    const unreadCount = 0;
     
     // Get next due date
     const nextPaymentResult = await dbQuery(`
@@ -137,13 +131,13 @@ router.get('/dashboard', async (req: Request, res: Response) => {
           next_due_date: nextPaymentResult.rows[0]?.due_date || null,
           next_payment_amount: nextPaymentResult.rows[0]?.amount || profile.rent_amount,
           pending_complaints: parseInt(complaintsResult.rows[0]?.pending_count) || 0,
-          unread_messages: parseInt(messagesResult.rows[0]?.unread_count) || 0
+          unread_messages: unreadCount
         },
         stats: {
           current_rent: profile.rent_amount || 0,
           payment_status: paymentResult.rows[0]?.status || 'pending',
           pending_complaints: parseInt(complaintsResult.rows[0]?.pending_count) || 0,
-          unread_messages: parseInt(messagesResult.rows[0]?.unread_count) || 0
+          unread_messages: unreadCount
         },
         recent_payments: recentPaymentsResult.rows,
         recent_complaints: recentComplaintsResult.rows
@@ -453,7 +447,9 @@ router.get('/complaints', async (req: Request, res: Response) => {
         mr.*,
         a.apartment_number,
         a.floor,
-        b.name as building_name
+        b.name as building_name,
+        COALESCE(mr.manager_marked_resolved, FALSE) as manager_marked_resolved,
+        COALESCE(mr.renter_marked_resolved, FALSE) as renter_marked_resolved
       FROM maintenance_requests mr
       JOIN apartments a ON mr.apartment_id = a.id
       LEFT JOIN buildings b ON a.building_id = b.id
@@ -478,7 +474,9 @@ router.get('/complaints', async (req: Request, res: Response) => {
         COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
         COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as in_progress_count,
         COUNT(CASE WHEN status IN ('completed', 'resolved') THEN 1 END) as resolved_count,
-        COUNT(CASE WHEN priority = 'urgent' THEN 1 END) as urgent_count
+        COUNT(CASE WHEN priority = 'urgent' THEN 1 END) as urgent_count,
+        COUNT(CASE WHEN COALESCE(manager_marked_resolved, FALSE) = TRUE 
+          AND COALESCE(renter_marked_resolved, FALSE) = FALSE THEN 1 END) as needs_confirmation
       FROM maintenance_requests 
       WHERE renter_id = $1
     `, [renterId]);
@@ -513,7 +511,9 @@ router.get('/complaints/recent', async (req: Request, res: Response) => {
         title, 
         status, 
         priority, 
-        created_at
+        created_at,
+        COALESCE(manager_marked_resolved, FALSE) as manager_marked_resolved,
+        COALESCE(renter_marked_resolved, FALSE) as renter_marked_resolved
       FROM maintenance_requests 
       WHERE renter_id = $1
       ORDER BY created_at DESC 
@@ -574,8 +574,10 @@ router.post('/complaints', async (req: Request, res: Response) => {
         priority,
         description,
         status,
-        type
-      ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $4)
+        type,
+        manager_marked_resolved,
+        renter_marked_resolved
+      ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', $4, FALSE, FALSE)
       RETURNING id, title, priority, status, created_at
     `, [apartmentId, renterId, title, category || 'general', priority || 'medium', description]);
     
@@ -661,7 +663,11 @@ router.put('/complaints/:id/confirm-resolve', async (req: Request, res: Response
     
     // Check if complaint exists and belongs to renter
     const checkResult = await dbQuery(`
-      SELECT id, manager_marked_resolved, renter_marked_resolved, status
+      SELECT 
+        id, 
+        COALESCE(manager_marked_resolved, FALSE) as manager_marked_resolved, 
+        COALESCE(renter_marked_resolved, FALSE) as renter_marked_resolved, 
+        status
       FROM maintenance_requests 
       WHERE id = $1 AND renter_id = $2
     `, [complaintId, renterId]);
@@ -697,8 +703,7 @@ router.put('/complaints/:id/confirm-resolve', async (req: Request, res: Response
       SET 
         renter_marked_resolved = TRUE,
         status = 'resolved',
-        updated_at = CURRENT_TIMESTAMP,
-        resolved_at = CURRENT_TIMESTAMP
+        updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING *
     `, [complaintId]);
@@ -719,8 +724,6 @@ router.put('/complaints/:id/confirm-resolve', async (req: Request, res: Response
     });
   }
 });
-
-
 
 // DELETE /api/renter/complaints/:id - Delete complaint
 router.delete('/complaints/:id', async (req: Request, res: Response) => {
@@ -878,13 +881,6 @@ router.get('/messages', async (req: Request, res: Response) => {
         attachments: []
       }
     ];
-    
-    // In production, fetch from database:
-    // const result = await dbQuery(`
-    //   SELECT * FROM messages 
-    //   WHERE renter_id = $1 
-    //   ORDER BY created_at DESC
-    // `, [renterId]);
     
     res.status(200).json({
       success: true,

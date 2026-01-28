@@ -143,7 +143,7 @@ const ManagerMaintenance = () => {
           
           return {
             id: req.id?.toString() || Math.random().toString(),
-            renterName: req.renter_name || 'Unknown Renter',
+            renterName: req.renterName || 'Unknown Renter',
             apartment: req.apartment_number || 'Unknown',
             type: req.type || req.category || 'general',
             title: req.title || 'Maintenance Request',

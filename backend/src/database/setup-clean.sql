@@ -351,12 +351,13 @@ CREATE INDEX idx_maintenance_audit_request ON maintenance_audit_log(request_id);
 -- ==================== INSERT DEMO USERS (WITH HASHED PASSWORDS) ====================
 
 -- Insert demo users (password for all: demo123)
+-- Using valid bcrypt hash for 'demo123'
 INSERT INTO users (username, password_hash, role, email, phone, "isActive") VALUES
-('manager', '$2a$10$ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopq', 'manager', 'manager@ottalika.com', '01710000001', true),
-('owner', '$2a$10$ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopq', 'owner', 'owner@ottalika.com', '01710000002', true),
-('renter', '$2a$10$ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopq', 'renter', 'renter@ottalika.com', '01710000003', true),
-('john_doe', '$2a$10$ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopq', 'renter', 'john.doe@example.com', '01712345678', true),
-('sarah_smith', '$2a$10$ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopq', 'renter', 'sarah.smith@example.com', '01712345679', true);
+('manager', '$2a$10$JTKgZtabSdN8WLhKOhvwveTntvCbsTVXz1xu7/E/ntpR.ZbZE1/Hi', 'manager', 'manager@ottalika.com', '01710000001', true),
+('owner', '$2a$10$JTKgZtabSdN8WLhKOhvwveTntvCbsTVXz1xu7/E/ntpR.ZbZE1/Hi', 'owner', 'owner@ottalika.com', '01710000002', true),
+('renter', '$2a$10$JTKgZtabSdN8WLhKOhvwveTntvCbsTVXz1xu7/E/ntpR.ZbZE1/Hi', 'renter', 'renter@ottalika.com', '01710000003', true),
+('john_doe', '$2a$10$JTKgZtabSdN8WLhKOhvwveTntvCbsTVXz1xu7/E/ntpR.ZbZE1/Hi', 'renter', 'john.doe@example.com', '01712345678', true),
+('sarah_smith', '$2a$10$JTKgZtabSdN8WLhKOhvwveTntvCbsTVXz1xu7/E/ntpR.ZbZE1/Hi', 'renter', 'sarah.smith@example.com', '01712345679', true);
 
 -- Insert demo owners
 INSERT INTO owners (user_id, name, address) VALUES
@@ -387,7 +388,7 @@ INSERT INTO apartments (building_id, apartment_number, floor, bedrooms, bathroom
 -- Building 1 - Green Valley Apartments
 (1, '101', '1', 2, 1, 12000.00, 'occupied', 1, '2024-01-01', '2024-12-31'),
 (1, '102', '1', 1, 1, 8000.00, 'occupied', 2, '2024-02-01', '2024-11-30'),
-(1, '103', '1', 1, 1, 8500.00, 'vacant', NULL, NULL, NULL),
+(1, '103', '1', 1, 1, 8500.00, 'occupied', 6, '2024-01-01', '2024-12-31'),
 (1, '201', '2', 2, 2, 15000.00, 'occupied', 3, '2024-03-01', '2024-10-31'),
 (1, '202', '2', 1, 1, 9000.00, 'vacant', NULL, NULL, NULL),
 (1, '301', '3', 3, 2, 18000.00, 'maintenance', NULL, NULL, NULL),
