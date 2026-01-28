@@ -1,4 +1,3 @@
-// frontend/src/routes.tsx - FIXED VERSION
 import { createBrowserRouter } from "react-router-dom";
 import Login from "./pages/Login";
 import Layout from "./Layout";
@@ -6,6 +5,9 @@ import Layout from "./Layout";
 // Owner components
 import { OwnerDashboard } from "./components/owner/OwnerDashboard";
 import { OwnerPayments } from "./components/owner/OwnerPayments";
+import { OwnerManagerStatus } from "./components/owner/OwnerManagerStatus";
+import { OwnerComplaints } from "./components/owner/OwnerComplaints";
+
 
 // Manager components
 import ManagerDashboard from "./components/manager/Dashboard";
@@ -18,22 +20,12 @@ import ManagerMessages from "./components/manager/Messages";
 import AdvancedAnalytics from './components/manager/AdvancedAnalytics';
 
 // Renter components
-// Add to your routes configuration
 import RenterDashboard from './components/renter/RenterDashboard';
 import RenterPayments from './components/renter/RenterPayments';
 import RenterComplaints from './components/renter/RenterComplaints';
 import RenterProfile from './components/renter/RenterProfile';
 import RenterMessages from './components/renter/RenterMessages';
 
-const renterRoutes = [
-  { path: '/renter/dashboard', element: <RenterDashboard /> },
-  { path: '/renter/payments', element: <RenterPayments /> },
-  { path: '/renter/complaints', element: <RenterComplaints /> },
-  { path: '/renter/profile', element: <RenterProfile /> },
-  { path: '/renter/messages', element: <RenterMessages /> },
-];
-
-// Import ProtectedRoute component (create this file)
 import ProtectedRoute from "./components/manager/ProtectedRoute";
 
 export const router = createBrowserRouter([
@@ -46,100 +38,136 @@ export const router = createBrowserRouter([
   // Home/landing page redirect to login
   {
     path: "/",
-    element: <Login />, // Changed: Direct to login instead of separate page
+    element: <Login />,
   },
   
-  // PROTECTED ROUTES - using Layout
+  // OWNER ROUTES - No required role check
   {
-    path: "/",
+    path: "/owner",
     element: (
       <ProtectedRoute>
         <Layout />
       </ProtectedRoute>
     ),
     children: [
-      // Redirect from root to appropriate dashboard based on user role
       {
         index: true,
-        element: <div>Loading...</div>, // This will be redirected by ProtectedRoute
-      },
-      
-      // Owner routes
-      {
-        path: "owner",
         element: <OwnerDashboard />,
       },
       {
-        path: "owner/payments",
+        path: "payments",
         element: <OwnerPayments />,
       },
-      
-      // Manager routes
       {
-        path: "manager/dashboard",
+        path: "manager-status",
+        element: <OwnerManagerStatus />,
+      },
+      {
+        path: "complaints",
+        element: <OwnerComplaints />,
+      },
+     
+    ],
+  },
+  
+  // MANAGER ROUTES
+  {
+    path: "/manager",
+    element: (
+      <ProtectedRoute requiredRole="manager">
+        <Layout />
+      </ProtectedRoute>
+    ),
+    children: [
+      {
+        index: true,
         element: <ManagerDashboard />,
       },
       {
-        path: "manager/renters",
+        path: "dashboard",
+        element: <ManagerDashboard />,
+      },
+      {
+        path: "renters",
         element: <ManagerRenters />,
       },
       {
-        path: "manager/bills",
+        path: "bills",
         element: <ManagerBills />,
       },
       {
-        path: "manager/maintenance",
+        path: "maintenance",
         element: <ManagerMaintenance />,
       },
       {
-        path: "manager/payments",
+        path: "payments",
         element: <ManagerPayments />,
       },
       {
-        path: "manager/analytics", 
+        path: "analytics", 
         element: <AdvancedAnalytics />,
       },
       {
-        path: "manager/settings",
+        path: "settings",
         element: <ManagerSettings />,
       },
       {
-        path: "manager/messages",
+        path: "messages",
         element: <ManagerMessages />,
       },
-      
-      // Renter routes
+    ],
+  },
+  
+  // RENTER ROUTES
+  {
+    path: "/renter",
+    element: (
+      <ProtectedRoute requiredRole="renter">
+        <Layout />
+      </ProtectedRoute>
+    ),
+    children: [
       {
-        path: "renter/dashboard",
+        index: true,
         element: <RenterDashboard />,
       },
       {
-        path: "renter/profile",
+        path: "dashboard",
+        element: <RenterDashboard />,
+      },
+      {
+        path: "profile",
         element: <RenterProfile />,
       },
       {
-        path: "renter/payments",
+        path: "payments",
         element: <RenterPayments />,
       },
       {
-        path: "renter/complaints",
+        path: "complaints",
         element: <RenterComplaints />,
       },
       {
-        path: "renter/messages",
+        path: "messages",
         element: <RenterMessages />,
       },
-      
-      // 404 catch-all
-      {
-        path: "*",
-        element: <div className="p-8 text-center">
-          <h1 className="text-3xl font-bold mb-4">404 - Page Not Found</h1>
-          <a href="/" className="px-6 py-3 bg-violet-600 text-white rounded-lg hover:bg-violet-700">
-            Go Home
-          </a>
-        </div>,
-      },
     ],
+  },
+  
+  // 404 catch-all
+  {
+    path: "*",
+    element: (
+      <div className="min-h-screen flex flex-col items-center justify-center p-8">
+        <h1 className="text-3xl font-bold mb-4">404 - Page Not Found</h1>
+        <p className="text-gray-600 mb-6">The page you're looking for doesn't exist.</p>
+        <a 
+          href="/" 
+          className="px-6 py-3 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
+        >
+          Go Home
+        </a>
+      </div>
+    ),
   },
 ]);

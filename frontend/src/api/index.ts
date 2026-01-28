@@ -1,33 +1,51 @@
-// import axios from 'axios';
+// frontend/src/api/index.ts
+import axios from 'axios';
 
-// const api = axios.create({
-//   baseURL: 'http://localhost:5000/api',
-//   headers: {
-//     'Content-Type': 'application/json',
-//   },
-// });
+const API_BASE_URL = 'http://localhost:5000/api';
 
-// // Add token to requests if exists
-// api.interceptors.request.use(
-//   (config) => {
-//     const token = localStorage.getItem('token');
-//     if (token) {
-//       config.headers.Authorization = `Bearer ${token}`;
-//     }
-//     //  if (!token) {
-//     //   // Dummy token (copy from your earlier generated token)
-//     //   //const dummyToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiIxIiwicm9sZSI6Im93bmVyIiwiZW1haWwiOiJvd25lckB0ZXN0LmNvbSIsIm5hbWUiOiJUZXN0IE93bmVyIiwiaWF0IjoxNzM3MjEyMDAwLCJleHAiOjE3Mzc4MTY4MDB9.kR9qQ8YJY6G8wLmN7vX2cT1pK3qA5bB7dE9fGh1jL3mN5oP7rS9tUvWxYz';
-//     //           const dummyToken= 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjgsImlhdCI6MTc2MzIxNTY5NSwiZXhwIjoxNzYzODIwNDk1fQ.aQDpkuqlfKgF5Gt7tGLIvSRq0sqW7qgddKiOr2RNbtE'
-//     //   config.headers.Authorization = `Bearer ${dummyToken}`;
-//     //   console.log('⚠️ Using dummy token for development');
-//     // } else {
-//     //   config.headers.Authorization = `Bearer ${token}`;
-//     // }
-//     return config;
-//   },
-//   (error) => {
-//     return Promise.reject(error);
-//   }
-// );
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
 
-// export default api;
+// Add token to requests
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+export const ownerApi = {
+  // Get bills by category (from your code)
+  getBills: async (category: string = 'all') => {
+    const response = await api.get(`/owner/bills?category=${category}`);
+    return response.data;
+  },
+
+  // Get complaints (from teammate's code)
+  getComplaints: async () => {
+    const response = await api.get('/owner/complaints');
+    return response.data;
+  },
+
+  // Get payments for a month (from teammate's code)
+  getPayments: async (month: string = '2025-01-01') => {
+    const response = await api.get(`/owner/payments?month=${month}`);
+    return response.data;
+  },
+
+  // Get available months for payments
+  getPaymentMonths: async () => {
+    const response = await api.get('/owner/payments/months');
+    return response.data;
+  }
+};

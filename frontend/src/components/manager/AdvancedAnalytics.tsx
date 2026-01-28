@@ -52,7 +52,7 @@ interface ChartData {
 }
 
 const AdvancedAnalytics = () => {
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('payment-patterns');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<AnalyticsData>({});
   const [filters, setFilters] = useState({
@@ -124,7 +124,6 @@ const AdvancedAnalytics = () => {
   };
 
   const tabs = [
-    { id: 'overview', label: 'Overview', icon: <FaChartLine /> },
     { id: 'payment-patterns', label: 'Payment Patterns', icon: <FaMoneyBillWave /> },
     { id: 'occupancy-trends', label: 'Occupancy Trends', icon: <FaBuilding /> },
     { id: 'maintenance-analytics', label: 'Maintenance Analytics', icon: <FaTools /> },
@@ -135,106 +134,7 @@ const AdvancedAnalytics = () => {
     { id: 'audit-logs', label: 'Audit Logs', icon: <FaClock /> },
   ];
 
-  const renderOverview = () => (
-    <div className="space-y-6">
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-xl border shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Advanced Analytics</p>
-              <p className="text-2xl font-bold mt-2 text-violet-600">8+</p>
-              <p className="text-xs text-slate-500">Analytics Types</p>
-            </div>
-            <FaChartLine className="text-2xl text-violet-500" />
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Predictive Models</p>
-              <p className="text-2xl font-bold mt-2 text-emerald-600">3</p>
-              <p className="text-xs text-slate-500">Active Predictions</p>
-            </div>
-            <FaExclamationTriangle className="text-2xl text-emerald-500" />
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Data Quality</p>
-              <p className="text-2xl font-bold mt-2 text-amber-600">94%</p>
-              <p className="text-xs text-slate-500">Valid Records</p>
-            </div>
-            <FaCheckCircle className="text-2xl text-amber-500" />
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Real-time Updates</p>
-              <p className="text-2xl font-bold mt-2 text-blue-600">Yes</p>
-              <p className="text-xs text-slate-500">Triggers Active</p>
-            </div>
-            <FaClock className="text-2xl text-blue-500" />
-          </div>
-        </div>
-      </div>
-
-      {/* Analytics Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <FaChartBar className="text-violet-600" />
-            Available Analytics
-          </h3>
-          <div className="space-y-3">
-            {tabs.slice(1).map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className="w-full text-left p-3 bg-slate-50 hover:bg-slate-100 rounded-lg flex items-center gap-3 transition-colors"
-              >
-                <div className="p-2 bg-white rounded-lg border">
-                  {tab.icon}
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-slate-900">{tab.label}</p>
-                  <p className="text-sm text-slate-500">Click to view detailed analytics</p>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <FaCubes className="text-violet-600" />
-            Advanced SQL Features
-          </h3>
-          <div className="space-y-4">
-            <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="font-medium text-blue-900">Window Functions</p>
-              <p className="text-sm text-blue-700">Running totals, rankings, and moving averages</p>
-            </div>
-            <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-              <p className="font-medium text-emerald-900">Recursive CTEs</p>
-              <p className="text-sm text-emerald-700">Hierarchical data and dependencies</p>
-            </div>
-            <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-              <p className="font-medium text-purple-900">CUBE & ROLLUP</p>
-              <p className="text-sm text-purple-700">Multi-dimensional aggregations</p>
-            </div>
-            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
-              <p className="font-medium text-amber-900">Triggers & Audits</p>
-              <p className="text-sm text-amber-700">Real-time data tracking</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
+ 
   const renderPaymentPatterns = () => {
     if (!data.patterns || data.patterns.length === 0) {
       return (
@@ -1127,8 +1027,7 @@ const AdvancedAnalytics = () => {
     }
 
     switch (activeTab) {
-      case 'overview':
-        return renderOverview();
+
       case 'payment-patterns':
         return renderPaymentPatterns();
       case 'occupancy-trends':
@@ -1146,7 +1045,7 @@ const AdvancedAnalytics = () => {
       case 'audit-logs':
         return renderAuditLogs();
       default:
-        return renderOverview();
+        return renderPaymentPatterns();
     }
   };
 
@@ -1156,7 +1055,7 @@ const AdvancedAnalytics = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Advanced Analytics</h1>
-          <p className="text-slate-600">Advanced SQL features with window functions, recursive CTEs, CUBE, and triggers</p>
+
         </div>
         <div className="flex items-center gap-3">
           <button 
