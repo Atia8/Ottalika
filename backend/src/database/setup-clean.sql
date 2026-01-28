@@ -930,3 +930,29 @@ INSERT INTO renters_audit_log (renter_id, old_status, new_status, change_reason)
 INSERT INTO maintenance_audit_log (request_id, old_status, new_status, change_reason) VALUES
 ((SELECT id FROM maintenance_requests WHERE renter_id = 6 AND title = 'Bathroom Fan Noisy'), 'pending', 'in_progress', 'Assigned to electrician'),
 ((SELECT id FROM maintenance_requests WHERE renter_id = 6 AND title = 'Bathroom Fan Noisy'), 'in_progress', 'completed', 'Repair completed');
+
+-- Add missing indexes for better performance
+CREATE INDEX idx_maintenance_requests_manager_renter_resolved ON maintenance_requests(manager_marked_resolved, renter_marked_resolved);
+CREATE INDEX idx_maintenance_requests_status_priority ON maintenance_requests(status, priority);
+CREATE INDEX idx_payments_renter_status ON payments(renter_id, status);
+CREATE INDEX idx_payments_month_status ON payments(month, status);
+CREATE INDEX idx_renters_status_user ON renters(status, user_id);
+
+-- Create a view for rent payments (separate from utility bills)
+CREATE VIEW rent_payments_view AS
+SELECT 
+    p.*,
+    a.apartment_number,
+    a.floor,
+    r.name as renter_name,
+    r.email as renter_email,
+    r.phone as renter_phone,
+    b.name as building_name,
+    pc.status as verification_status,
+    pc.verified_at,
+    pc.notes as verification_notes
+FROM payments p
+JOIN apartments a ON p.apartment_id = a.id
+JOIN renters r ON p.renter_id = r.id
+JOIN buildings b ON a.building_id = b.id
+LEFT JOIN payment_confirmations pc ON p.id = pc.payment_id;

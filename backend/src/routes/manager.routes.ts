@@ -1217,45 +1217,204 @@ router.post('/bills/:id/pay', async (req: Request, res: Response) => {
   }
 });
 
-// ==================== CREATE ANALYTICS SUB-ROUTER ====================
-const analyticsRouter = Router();
-
-// Payment patterns analytics
-analyticsRouter.get('/payment-patterns', async (req: Request, res: Response) => {
+// ==================== UTILITY BILLS ====================
+router.get('/bills/utility', async (req: Request, res: Response) => {
   try {
-    const { year, pattern } = req.query;
+    console.log('⚡ Fetching utility bills...');
     
-    const query = `
+    const result = await dbQuery(`
       SELECT 
-        renter_id,
-        renter_name,
-        apartment_number,
-        total_payments,
-        late_payments,
-        on_time_payments,
-        late_payment_percentage,
-        CASE 
-          WHEN late_payment_percentage > 50 THEN 'High Risk'
-          WHEN late_payment_percentage > 20 THEN 'Medium Risk'
-          ELSE 'Low Risk'
-        END as risk_category
-      FROM find_payment_pattern_renters($1)
-      ORDER BY late_payment_percentage DESC
-      LIMIT 50;
-    `;
+        ub.*,
+        b.name as building_name,
+        b.address as building_address
+      FROM utility_bills ub
+      LEFT JOIN buildings b ON ub.building_id = b.id
+      ORDER BY ub.due_date ASC
+    `);
     
-    const result = await dbQuery(query, [pattern || 'late']);
+    console.log(`✅ Found ${result.rows.length} utility bills`);
     
     res.status(200).json({
       success: true,
       data: {
-        patterns: result.rows,
+        bills: result.rows,
+        total: result.rowCount
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Get utility bills error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get utility bills'
+    });
+  }
+});
+
+router.post('/bills/utility', async (req: Request, res: Response) => {
+  try {
+    const {
+      type,
+      building_id,
+      amount,
+      due_date,
+      provider,
+      account_number,
+      month,
+      consumption,
+      description
+    } = req.body;
+    
+    console.log(`📝 Creating utility bill for ${type}`);
+    
+    if (!type || !amount || !due_date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Type, amount, and due date are required'
+      });
+    }
+    
+    const result = await dbQuery(`
+      INSERT INTO utility_bills (
+        type, building_id, amount, due_date, status, 
+        provider, account_number, month, consumption, description
+      ) VALUES ($1, $2, $3, $4, 'pending', $5, $6, $7, $8, $9)
+      RETURNING *
+    `, [type, building_id, amount, due_date, provider, account_number, month, consumption, description]);
+    
+    console.log(`✅ Utility bill created with ID: ${result.rows[0].id}`);
+    
+    res.status(201).json({
+      success: true,
+      data: {
+        bill: result.rows[0],
+        message: 'Utility bill created successfully'
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Create utility bill error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create utility bill'
+    });
+  }
+});
+
+router.post('/bills/utility/:id/pay', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { paid_amount, paid_date } = req.body;
+    
+    console.log(`💰 Marking utility bill ${id} as paid`);
+    
+    const result = await dbQuery(`
+      UPDATE utility_bills 
+      SET 
+        status = 'paid',
+        paid_amount = $1,
+        paid_date = $2,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3
+      RETURNING *
+    `, [paid_amount || req.body.amount, paid_date || new Date(), id]);
+    
+    if (result.rows.length === 0) {
+      console.log(`❌ Utility bill ${id} not found`);
+      return res.status(404).json({
+        success: false,
+        message: 'Utility bill not found'
+      });
+    }
+    
+    console.log(`✅ Utility bill ${id} marked as paid`);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        bill: result.rows[0],
+        message: 'Utility bill marked as paid'
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Mark utility bill as paid error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update utility bill'
+    });
+  }
+});
+
+router.delete('/bills/utility/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    
+    console.log(`🗑️ Deleting utility bill ${id}`);
+    
+    const result = await dbQuery(`
+      DELETE FROM utility_bills 
+      WHERE id = $1 AND status = 'pending'
+      RETURNING id
+    `, [id]);
+    
+    if (result.rows.length === 0) {
+      console.log(`❌ Utility bill ${id} not found or already paid`);
+      return res.status(404).json({
+        success: false,
+        message: 'Utility bill not found or already paid'
+      });
+    }
+    
+    console.log(`✅ Utility bill ${id} deleted`);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Utility bill deleted successfully',
+        billId: id
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Delete utility bill error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete utility bill'
+    });
+  }
+});
+
+// ==================== ANALYTICS ENDPOINTS ====================
+
+// GET /api/manager/analytics/payment-patterns
+router.get('/analytics/payment-patterns', async (req: Request, res: Response) => {
+  try {
+    const { pattern = 'late' } = req.query;
+    
+    console.log(`📊 Analyzing payment patterns: ${pattern}`);
+    
+    // Use the SQL function from your database
+    const result = await dbQuery('SELECT * FROM find_payment_pattern_renters($1)', [pattern]);
+    
+    // Add risk categories
+    const patterns = result.rows.map((row: any) => ({
+      ...row,
+      risk_category: parseFloat(row.late_payment_percentage) > 50 ? 'High Risk' :
+                    parseFloat(row.late_payment_percentage) > 20 ? 'Medium Risk' : 'Low Risk'
+    }));
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        patterns: patterns,
         summary: {
           total: result.rowCount,
-          highRisk: result.rows.filter((r: any) => r.risk_category === 'High Risk').length,
+          highRisk: patterns.filter((r: any) => r.risk_category === 'High Risk').length,
+          mediumRisk: patterns.filter((r: any) => r.risk_category === 'Medium Risk').length,
           averageLatePercentage: result.rows.length > 0 
             ? (result.rows.reduce((sum: number, r: any) => sum + parseFloat(r.late_payment_percentage), 0) / result.rows.length).toFixed(2)
-            : 0
+            : '0'
         }
       }
     });
@@ -1269,8 +1428,607 @@ analyticsRouter.get('/payment-patterns', async (req: Request, res: Response) => 
   }
 });
 
-// Mount analytics router
-router.use('/analytics', analyticsRouter);
+// GET /api/manager/analytics/payment-trends
+router.get('/analytics/payment-trends', async (req: Request, res: Response) => {
+  try {
+    const { months = '12' } = req.query;
+    const monthCount = parseInt(months as string);
+    
+    console.log(`📊 Fetching payment trends for last ${monthCount} months`);
+    
+    const result = await dbQuery(`
+      SELECT 
+        TO_CHAR(DATE_TRUNC('month', month), 'YYYY-MM') as month,
+        COUNT(*) as total_payments,
+        SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) as monthly_total,
+        COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_count,
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
+        COUNT(CASE WHEN status = 'overdue' THEN 1 END) as overdue_count,
+        ROUND(
+          COUNT(CASE WHEN status = 'paid' THEN 1 END)::DECIMAL / 
+          NULLIF(COUNT(*), 0) * 100, 
+          2
+        ) as collection_rate
+      FROM payments
+      WHERE month >= CURRENT_DATE - INTERVAL '${monthCount} months'
+      GROUP BY DATE_TRUNC('month', month)
+      ORDER BY DATE_TRUNC('month', month) ASC
+    `);
+    
+    // Calculate running totals and growth percentages
+    let runningTotal = 0;
+    const trends = result.rows.map((row: any, index: number) => {
+      runningTotal += parseFloat(row.monthly_total || 0);
+      
+      const prevMonth = index > 0 ? parseFloat(result.rows[index - 1].monthly_total || 0) : 0;
+      const growthPercentage = prevMonth > 0 
+        ? ((parseFloat(row.monthly_total || 0) - prevMonth) / prevMonth * 100).toFixed(1)
+        : '0';
+      
+      return {
+        ...row,
+        month_rank: index + 1,
+        running_total: runningTotal,
+        growth_percentage: parseFloat(growthPercentage)
+      };
+    });
+    
+    const totalCollected = trends.reduce((sum: number, t: any) => sum + parseFloat(t.monthly_total || 0), 0);
+    const growthMonths = trends.filter((t: any) => t.growth_percentage > 0).length;
+    const declineMonths = trends.filter((t: any) => t.growth_percentage < 0).length;
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        trends: trends,
+        summary: {
+          totalCollected,
+          averageMonthly: totalCollected / (trends.length || 1),
+          growthMonths,
+          declineMonths,
+          bestMonth: trends.length > 0 ? trends.reduce((max, t) => 
+            parseFloat(t.monthly_total || 0) > parseFloat(max.monthly_total || 0) ? t : max, trends[0]
+          ) : null
+        }
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Payment trends error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch payment trends'
+    });
+  }
+});
+
+// GET /api/manager/analytics/occupancy-trends
+router.get('/analytics/occupancy-trends', async (req: Request, res: Response) => {
+  try {
+    const { months = '12' } = req.query;
+    const monthCount = parseInt(months as string);
+    
+    console.log(`🏠 Fetching occupancy trends for last ${monthCount} months`);
+    
+    // Note: This is a simplified version. For historical occupancy, you'd need to track changes over time.
+    const result = await dbQuery(`
+      SELECT 
+        b.name as building_name,
+        COUNT(a.id) as total_units,
+        COUNT(CASE WHEN a.status = 'occupied' THEN 1 END) as occupied_units,
+        COUNT(CASE WHEN a.status = 'vacant' THEN 1 END) as vacant_units,
+        COUNT(CASE WHEN a.status = 'maintenance' THEN 1 END) as maintenance_units,
+        ROUND(
+          COUNT(CASE WHEN a.status = 'occupied' THEN 1 END)::DECIMAL / 
+          NULLIF(COUNT(a.id), 0) * 100, 
+          2
+        ) as occupancy_rate,
+        COALESCE(SUM(CASE WHEN a.status = 'occupied' THEN a.rent_amount ELSE 0 END), 0) as monthly_revenue
+      FROM buildings b
+      LEFT JOIN apartments a ON b.id = a.building_id
+      GROUP BY b.id, b.name
+      ORDER BY occupancy_rate DESC
+    `);
+    
+    const trends = result.rows.map((row: any) => ({
+      ...row,
+      occupancy_status: row.occupancy_rate >= 85 ? 'Excellent' :
+                       row.occupancy_rate >= 70 ? 'Good' :
+                       row.occupancy_rate >= 50 ? 'Fair' : 'Poor'
+    }));
+    
+    const averageOccupancy = result.rows.length > 0 
+      ? (result.rows.reduce((sum: number, row: any) => sum + parseFloat(row.occupancy_rate), 0) / result.rows.length).toFixed(2)
+      : "0";
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        trends: trends,
+        summary: {
+          totalBuildings: result.rowCount,
+          totalUnits: trends.reduce((sum: number, t: any) => sum + parseInt(t.total_units), 0),
+          occupiedUnits: trends.reduce((sum: number, t: any) => sum + parseInt(t.occupied_units), 0),
+          averageOccupancy,
+          totalMonthlyRevenue: trends.reduce((sum: number, t: any) => sum + parseFloat(t.monthly_revenue), 0)
+        }
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Occupancy trends error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch occupancy trends'
+    });
+  }
+});
+
+// GET /api/manager/analytics/maintenance-analytics
+router.get('/analytics/maintenance-analytics', async (req: Request, res: Response) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    console.log(`🔧 Fetching maintenance analytics`);
+    
+    let dateFilter = '';
+    const params: any[] = [];
+    
+    if (startDate) {
+      dateFilter += ' AND mr.created_at >= $1';
+      params.push(startDate);
+    }
+    
+    if (endDate) {
+      dateFilter += ` AND mr.created_at <= $${params.length + 1}`;
+      params.push(endDate);
+    }
+    
+    // CUBE aggregation query
+    const cubeResult = await dbQuery(`
+      SELECT 
+        COALESCE(mr.category, 'All Categories') as category,
+        COALESCE(mr.priority, 'All Priorities') as priority,
+        COALESCE(b.name, 'All Buildings') as building_name,
+        COUNT(*) as request_count,
+        COALESCE(SUM(mr.actual_cost), 0) as total_cost,
+        ROUND(AVG(mr.actual_cost), 2) as avg_cost,
+        ROUND(AVG(
+          EXTRACT(EPOCH FROM (mr.completed_at - mr.created_at)) / 86400
+        ), 1) as avg_days_to_resolve,
+        ROUND(
+          COUNT(CASE WHEN mr.status IN ('completed', 'resolved') THEN 1 END)::DECIMAL / 
+          NULLIF(COUNT(*), 0) * 100, 
+          1
+        ) as resolution_rate
+      FROM maintenance_requests mr
+      LEFT JOIN apartments a ON mr.apartment_id = a.id
+      LEFT JOIN buildings b ON a.building_id = b.id
+      WHERE 1=1 ${dateFilter}
+      GROUP BY CUBE(mr.category, mr.priority, b.name)
+      ORDER BY mr.category, mr.priority, b.name
+    `, params.length > 0 ? params : undefined);
+    
+    // Process data for easier frontend consumption
+    const byCategory: any = {};
+    const byPriority: any = {};
+    const byBuilding: any = {};
+    
+    cubeResult.rows.forEach((row: any) => {
+      if (row.category !== 'All Categories' && row.priority === 'All Priorities' && row.building_name === 'All Buildings') {
+        byCategory[row.category] = {
+          totalCost: parseFloat(row.total_cost),
+          requestCount: parseInt(row.request_count),
+          avgCost: parseFloat(row.avg_cost)
+        };
+      }
+      
+      if (row.category === 'All Categories' && row.priority !== 'All Priorities' && row.building_name === 'All Buildings') {
+        byPriority[row.priority] = {
+          totalCost: parseFloat(row.total_cost),
+          requestCount: parseInt(row.request_count),
+          avgCost: parseFloat(row.avg_cost)
+        };
+      }
+      
+      if (row.category === 'All Categories' && row.priority === 'All Priorities' && row.building_name !== 'All Buildings') {
+        byBuilding[row.building_name] = {
+          totalCost: parseFloat(row.total_cost),
+          requestCount: parseInt(row.request_count),
+          avgCost: parseFloat(row.avg_cost)
+        };
+      }
+    });
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        cubeResults: cubeResult.rows,
+        processedData: {
+          byCategory,
+          byPriority,
+          byBuilding
+        },
+        summary: {
+          totalRequests: cubeResult.rows.find((r: any) => 
+            r.category === 'All Categories' && 
+            r.priority === 'All Priorities' && 
+            r.building_name === 'All Buildings'
+          )?.request_count || 0,
+          totalCost: cubeResult.rows.find((r: any) => 
+            r.category === 'All Categories' && 
+            r.priority === 'All Priorities' && 
+            r.building_name === 'All Buildings'
+          )?.total_cost || 0
+        }
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Maintenance analytics error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch maintenance analytics'
+    });
+  }
+});
+
+// GET /api/manager/analytics/building-hierarchy
+router.get('/analytics/building-hierarchy', async (req: Request, res: Response) => {
+  try {
+    console.log('🏗️ Fetching building hierarchy...');
+    
+    const result = await dbQuery(`
+      WITH RECURSIVE building_hierarchy AS (
+        -- Base case: buildings
+        SELECT 
+          id,
+          name,
+          0 as level,
+          name::TEXT as hierarchy_path
+        FROM buildings
+        
+        UNION ALL
+        
+        -- Recursive case: apartments
+        SELECT 
+          a.id,
+          CONCAT('Apartment ', a.apartment_number),
+          bh.level + 1,
+          bh.hierarchy_path || ' → ' || CONCAT('Apartment ', a.apartment_number)
+        FROM apartments a
+        JOIN building_hierarchy bh ON a.building_id = bh.id AND bh.level = 0
+      )
+      SELECT 
+        bh.*,
+        (SELECT COUNT(*) FROM apartments a2 WHERE a2.building_id = bh.id) as apartment_count,
+        (SELECT COUNT(*) FROM apartments a3 WHERE a3.building_id = bh.id AND a3.status = 'occupied') as occupied_count,
+        (SELECT COUNT(*) FROM apartments a4 WHERE a4.building_id = bh.id AND a4.status = 'vacant') as vacant_count,
+        CASE 
+          WHEN (SELECT COUNT(*) FROM apartments a5 WHERE a5.building_id = bh.id) > 0 THEN
+            ROUND(
+              (SELECT COUNT(*) FROM apartments a6 WHERE a6.building_id = bh.id AND a6.status = 'occupied')::DECIMAL / 
+              (SELECT COUNT(*) FROM apartments a7 WHERE a7.building_id = bh.id) * 100, 
+              2
+            )
+          ELSE 0
+        END as floor_occupancy_rate,
+        COALESCE(
+          (SELECT SUM(rent_amount) FROM apartments a8 WHERE a8.building_id = bh.id AND a8.status = 'occupied'),
+          0
+        ) as total_monthly_rent
+      FROM building_hierarchy bh
+      ORDER BY 
+        CASE WHEN level = 0 THEN id END,
+        level,
+        name
+    `);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        hierarchy: result.rows,
+        summary: {
+          totalBuildings: result.rows.filter((r: any) => r.level === 0).length,
+          totalApartments: result.rows.filter((r: any) => r.level === 1).length,
+          totalOccupied: result.rows.reduce((sum: number, r: any) => sum + (r.occupied_count || 0), 0),
+          overallOccupancyRate: result.rows.length > 0 
+            ? (result.rows.reduce((sum: number, r: any) => sum + (r.floor_occupancy_rate || 0), 0) / result.rows.length).toFixed(2)
+            : "0"
+        }
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Building hierarchy error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch building hierarchy'
+    });
+  }
+});
+
+// GET /api/manager/analytics/predictive-metrics
+router.get('/analytics/predictive-metrics', async (req: Request, res: Response) => {
+  try {
+    console.log('🔮 Fetching predictive metrics...');
+    
+    // Get payment patterns for prediction
+    const result = await dbQuery(`
+      WITH payment_patterns AS (
+        SELECT 
+          r.id as renter_id,
+          r.name,
+          a.apartment_number,
+          COUNT(p.id) as total_payments,
+          COUNT(CASE WHEN p.status = 'overdue' OR (p.status = 'paid' AND p.paid_at > p.due_date) THEN 1 END) as late_payments,
+          AVG(
+            CASE 
+              WHEN p.status = 'paid' AND p.paid_at > p.due_date 
+              THEN EXTRACT(EPOCH FROM (p.paid_at - p.due_date)) / 86400
+              ELSE 0 
+            END
+          ) as avg_days_delay
+        FROM renters r
+        JOIN apartments a ON r.id = a.current_renter_id
+        JOIN payments p ON r.id = p.renter_id
+        WHERE r.status = 'active'
+        GROUP BY r.id, r.name, a.apartment_number
+        HAVING COUNT(p.id) >= 3  -- At least 3 payments for prediction
+      )
+      SELECT 
+        *,
+        ROUND((late_payments::DECIMAL / total_payments) * 100, 2) as late_payment_percentage,
+        CASE 
+          WHEN (late_payments::DECIMAL / total_payments) >= 0.5 THEN 'High Risk'
+          WHEN (late_payments::DECIMAL / total_payments) >= 0.2 THEN 'Medium Risk'
+          ELSE 'Low Risk'
+        END as risk_level,
+        CASE 
+          WHEN avg_days_delay <= 0 THEN 'Early Payer'
+          WHEN avg_days_delay <= 2 THEN 'On Time'
+          WHEN avg_days_delay <= 7 THEN 'Occasionally Late'
+          ELSE 'Frequently Late'
+        END as payment_behavior,
+        CASE 
+          WHEN (late_payments::DECIMAL / total_payments) >= 0.5 THEN 'Consider termination notice'
+          WHEN (late_payments::DECIMAL / total_payments) >= 0.2 THEN 'Monitor closely, send reminders'
+          ELSE 'Normal monitoring'
+        END as recommended_action
+      FROM payment_patterns
+      ORDER BY risk_level DESC, late_payment_percentage DESC
+    `);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        predictions: result.rows,
+        summary: {
+          totalRentersAnalyzed: result.rowCount,
+          highRiskCount: result.rows.filter((r: any) => r.risk_level === 'High Risk').length,
+          mediumRiskCount: result.rows.filter((r: any) => r.risk_level === 'Medium Risk').length,
+          lowRiskCount: result.rows.filter((r: any) => r.risk_level === 'Low Risk').length,
+          averageDelayDays: result.rows.length > 0 
+            ? (result.rows.reduce((sum: number, r: any) => sum + (r.avg_days_delay || 0), 0) / result.rows.length).toFixed(2)
+            : "0"
+        }
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Predictive metrics error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch predictive metrics'
+    });
+  }
+});
+
+// GET /api/manager/analytics/data-validation
+router.get('/analytics/data-validation', async (req: Request, res: Response) => {
+  try {
+    console.log('✅ Running data validation checks...');
+    
+    // Get validation results
+    const result = await dbQuery(`
+      SELECT 
+        'renters' as table_name,
+        COUNT(*) as total_records,
+        COUNT(CASE WHEN phone ~ '^[0-9+()\\- ]{10,20}$' THEN 1 END) as valid_phones,
+        COUNT(CASE WHEN email ~ '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$' THEN 1 END) as valid_emails,
+        COUNT(CASE WHEN nid_number ~ '^[0-9]{10,20}$' THEN 1 END) as valid_nids
+      FROM renters
+      
+      UNION ALL
+      
+      SELECT 
+        'apartments' as table_name,
+        COUNT(*) as total_records,
+        NULL as valid_phones,
+        NULL as valid_emails,
+        COUNT(CASE WHEN apartment_number ~ '^[0-9]{2,3}[A-Z]?$' THEN 1 END) as valid_apt_numbers
+      FROM apartments
+      
+      UNION ALL
+      
+      SELECT 
+        'payments' as table_name,
+        COUNT(*) as total_records,
+        COUNT(CASE WHEN transaction_id ~ '^[A-Z0-9]{6,20}$' THEN 1 END) as valid_transactions,
+        NULL as valid_emails,
+        COUNT(CASE WHEN amount > 0 THEN 1 END) as valid_amounts
+      FROM payments
+      
+      ORDER BY table_name
+    `);
+    
+    const dataQualityScore = Math.round(
+      (result.rows.reduce((sum: number, row: any) => {
+        const validFields = (row.valid_phones || 0) + (row.valid_emails || 0) + 
+                          (row.valid_nids || 0) + (row.valid_apt_numbers || 0) + 
+                          (row.valid_transactions || 0) + (row.valid_amounts || 0);
+        const totalFields = row.total_records * 3; // Approximate
+        return sum + (totalFields > 0 ? (validFields / totalFields) * 100 : 100);
+      }, 0) / result.rows.length)
+    );
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        validation: result.rows,
+        summary: {
+          totalTables: result.rowCount,
+          totalRecords: result.rows.reduce((sum: number, row: any) => sum + parseInt(row.total_records), 0),
+          dataQualityScore: Math.min(100, dataQualityScore),
+          status: dataQualityScore > 90 ? 'Excellent' : 
+                 dataQualityScore > 80 ? 'Good' : 
+                 dataQualityScore > 70 ? 'Fair' : 'Needs Improvement'
+        }
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Data validation error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to run data validation'
+    });
+  }
+});
+
+// GET /api/manager/analytics/audit-logs
+router.get('/analytics/audit-logs', async (req: Request, res: Response) => {
+  try {
+    const { days = '30', type = 'all' } = req.query;
+    const dayCount = parseInt(days as string);
+    
+    console.log(`📝 Fetching audit logs for last ${dayCount} days`);
+    
+    if (type === 'all' || !type) {
+      // Combine all audit logs
+      const result = await dbQuery(`
+        SELECT 
+          'payment' as audit_type,
+          pal.id,
+          pal.payment_id as record_id,
+          pal.old_status,
+          pal.new_status,
+          pal.changed_at,
+          pal.change_reason,
+          r.name as renter_name,
+          a.apartment_number,
+          p.amount
+        FROM payment_audit_log pal
+        JOIN payments p ON pal.payment_id = p.id
+        JOIN renters r ON p.renter_id = r.id
+        JOIN apartments a ON p.apartment_id = a.id
+        WHERE pal.changed_at >= CURRENT_DATE - INTERVAL '${dayCount} days'
+        
+        UNION ALL
+        
+        SELECT 
+          'renter' as audit_type,
+          ral.id,
+          ral.renter_id as record_id,
+          ral.old_status,
+          ral.new_status,
+          ral.changed_at,
+          ral.change_reason,
+          r.name as renter_name,
+          a.apartment_number,
+          NULL as amount
+        FROM renters_audit_log ral
+        JOIN renters r ON ral.renter_id = r.id
+        LEFT JOIN apartments a ON r.id = a.current_renter_id
+        WHERE ral.changed_at >= CURRENT_DATE - INTERVAL '${dayCount} days'
+        
+        UNION ALL
+        
+        SELECT 
+          'maintenance' as audit_type,
+          mal.id,
+          mal.request_id as record_id,
+          mal.old_status,
+          mal.new_status,
+          mal.changed_at,
+          mal.change_reason,
+          r.name as renter_name,
+          a.apartment_number,
+          mr.estimated_cost as amount
+        FROM maintenance_audit_log mal
+        JOIN maintenance_requests mr ON mal.request_id = mr.id
+        JOIN renters r ON mr.renter_id = r.id
+        JOIN apartments a ON mr.apartment_id = a.id
+        WHERE mal.changed_at >= CURRENT_DATE - INTERVAL '${dayCount} days'
+        
+        ORDER BY changed_at DESC
+        LIMIT 100
+      `);
+      
+      res.status(200).json({
+        success: true,
+        data: {
+          logs: result.rows,
+          summary: {
+            totalLogs: result.rowCount,
+            paymentLogs: result.rows.filter((r: any) => r.audit_type === 'payment').length,
+            renterLogs: result.rows.filter((r: any) => r.audit_type === 'renter').length,
+            maintenanceLogs: result.rows.filter((r: any) => r.audit_type === 'maintenance').length,
+            mostActiveDay: result.rows.length > 0 
+              ? new Date(result.rows[0].changed_at).toDateString()
+              : 'No data'
+          }
+        }
+      });
+    } else {
+      // Get specific type of audit logs
+      let tableName = '';
+      switch (type) {
+        case 'payment':
+          tableName = 'payment_audit_log';
+          break;
+        case 'renter':
+          tableName = 'renters_audit_log';
+          break;
+        case 'maintenance':
+          tableName = 'maintenance_audit_log';
+          break;
+        default:
+          return res.status(400).json({
+            success: false,
+            message: 'Invalid audit type. Use: payment, renter, maintenance, or all'
+          });
+      }
+      
+      const result = await dbQuery(`
+        SELECT * FROM ${tableName}
+        WHERE changed_at >= CURRENT_DATE - INTERVAL '${dayCount} days'
+        ORDER BY changed_at DESC
+        LIMIT 100
+      `);
+      
+      res.status(200).json({
+        success: true,
+        data: {
+          logs: result.rows,
+          summary: {
+            totalLogs: result.rowCount,
+            daysCovered: dayCount,
+            logsPerDay: result.rowCount > 0 ? (result.rowCount / dayCount).toFixed(2) : '0',
+            latestChange: result.rows[0]?.changed_at || 'No changes'
+          }
+        }
+      });
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Audit logs error:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch audit logs'
+    });
+  }
+});
 
 // ==================== EXPORT ROUTER ====================
 export default router;

@@ -16,7 +16,6 @@ import {
   FaHome,
   FaCreditCard,
   FaBuilding,
-  FaRupeeSign,
   FaFileInvoice,
   FaExclamationCircle,
   FaSync
@@ -104,7 +103,7 @@ const ManagerPayments = () => {
         renterName: 'John Doe',
         apartment: '101',
         type: 'rent',
-        amount: 5000,
+        amount: 50000,
         month: 'January 2024',
         paymentDate: '2024-01-05',
         paymentMethod: 'bank_transfer',
@@ -112,7 +111,7 @@ const ManagerPayments = () => {
         status: 'pending_verification',
         submittedAt: '2024-01-05T10:30:00Z',
         renterEmail: 'john@example.com',
-        renterPhone: '+1234567890',
+        renterPhone: '+8801234567890',
         floor: '1',
         building: 'Main Building'
       },
@@ -121,7 +120,7 @@ const ManagerPayments = () => {
         renterName: 'Sarah Smith',
         apartment: '102',
         type: 'rent',
-        amount: 5500,
+        amount: 55000,
         month: 'January 2024',
         paymentDate: '2024-01-05',
         paymentMethod: 'cash',
@@ -129,7 +128,7 @@ const ManagerPayments = () => {
         status: 'pending_review',
         submittedAt: '2024-01-05T14:20:00Z',
         renterEmail: 'sarah@example.com',
-        renterPhone: '+1987654321',
+        renterPhone: '+8801987654321',
         floor: '1',
         building: 'Main Building'
       },
@@ -138,7 +137,7 @@ const ManagerPayments = () => {
         renterName: 'Robert Johnson',
         apartment: '201',
         type: 'rent',
-        amount: 6000,
+        amount: 60000,
         month: 'January 2024',
         paymentDate: '2024-01-04',
         paymentMethod: 'mobile_banking',
@@ -147,7 +146,7 @@ const ManagerPayments = () => {
         submittedAt: '2024-01-04T09:15:00Z',
         verifiedAt: '2024-01-05T11:30:00Z',
         renterEmail: 'robert@example.com',
-        renterPhone: '+1122334455',
+        renterPhone: '+8801122334455',
         floor: '2',
         building: 'Main Building'
       },
@@ -156,7 +155,7 @@ const ManagerPayments = () => {
         renterName: 'Emily Brown',
         apartment: '202',
         type: 'late_fee',
-        amount: 500,
+        amount: 5000,
         month: 'December 2023',
         paymentDate: '2024-01-03',
         paymentMethod: 'online',
@@ -165,7 +164,7 @@ const ManagerPayments = () => {
         submittedAt: '2024-01-03T16:45:00Z',
         notes: 'Payment screenshot not clear',
         renterEmail: 'emily@example.com',
-        renterPhone: '+1567890123',
+        renterPhone: '+8801567890123',
         floor: '2',
         building: 'Main Building'
       }
@@ -373,7 +372,7 @@ const ManagerPayments = () => {
         payment.renterName,
         payment.apartment,
         payment.type,
-        `₹${payment.amount}`,
+        `৳${payment.amount}`,
         payment.month,
         new Date(payment.paymentDate).toLocaleDateString(),
         payment.paymentMethod,
@@ -470,7 +469,7 @@ const ManagerPayments = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-600">Total Pending</p>
-              <p className="text-2xl font-bold mt-2">₹{stats.totalAmount.toLocaleString()}</p>
+              <p className="text-2xl font-bold mt-2">৳{stats.totalAmount.toLocaleString()}</p>
               <p className="text-sm text-slate-600 mt-1">{stats.totalCount} transactions</p>
             </div>
             <FaMoneyBillWave className="text-2xl text-violet-500" />
@@ -493,7 +492,7 @@ const ManagerPayments = () => {
             </div>
             <FaCheckCircle className="text-2xl text-emerald-500" />
           </div>
-        </div>
+</div>
         <div className="bg-white p-4 rounded-xl border">
           <div className="flex items-center justify-between">
             <div>
@@ -528,7 +527,7 @@ const ManagerPayments = () => {
                   {selectedPayments.length} payment(s) selected
                 </p>
                 <p className="text-sm text-violet-600">
-                  Total amount: ₹{payments
+                  Total amount: ৳{payments
                     .filter(p => selectedPayments.includes(p.id))
                     .reduce((sum, p) => sum + p.amount, 0)
                     .toLocaleString()}
@@ -687,10 +686,7 @@ const ManagerPayments = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <FaRupeeSign className="text-slate-500" />
-                        <p className="font-medium text-lg text-slate-900">{payment.amount.toLocaleString()}</p>
-                      </div>
+                      <p className="font-medium text-lg text-slate-900">৳{payment.amount.toLocaleString()}</p>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
@@ -772,10 +768,7 @@ const ManagerPayments = () => {
             </div>
             <div className="flex justify-between items-center p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
               <span className="text-slate-600">Total Amount Pending</span>
-              <span className="font-semibold text-lg flex items-center gap-1">
-                <FaRupeeSign className="text-slate-500" />
-                {stats.totalAmount.toLocaleString()}
-              </span>
+              <span className="font-semibold text-lg">৳{stats.totalAmount.toLocaleString()}</span>
             </div>
             <div className="flex justify-between items-center p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
               <span className="text-slate-600">Verification Rate</span>
@@ -838,10 +831,7 @@ const ManagerPayments = () => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-sm text-slate-600">Amount</p>
-                      <p className="text-2xl font-bold text-slate-900 flex items-center gap-1">
-                        <FaRupeeSign className="text-slate-500" />
-                        {selectedPayment.amount.toLocaleString()}
-                      </p>
+                      <p className="text-2xl font-bold text-slate-900">৳{selectedPayment.amount.toLocaleString()}</p>
                     </div>
                     <div>
                       <p className="text-sm text-slate-600">Status</p>
