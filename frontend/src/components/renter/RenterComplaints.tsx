@@ -158,21 +158,45 @@ const RenterComplaints = () => {
     }
   };
 
-  const handleUpdateStatus = async (complaintId: number, action: string) => {
-    try {
-      const token = localStorage.getItem('token');
-      
-      await axios.put(`${API_URL}/renter/complaints/${complaintId}/${action}`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      toast.success(`Complaint marked as ${action}`);
-      fetchComplaints();
-    } catch (error) {
-      console.error('Failed to update complaint:', error);
-      toast.error('Failed to update complaint');
-    }
-  };
+  const handleMarkResolved = async (complaintId: number) => {
+  if (!window.confirm('Are you sure the issue is completely resolved?')) return;
+  
+  try {
+    const token = localStorage.getItem('token');
+    
+    await axios.put(`${API_URL}/renter/complaints/${complaintId}/resolve`, {}, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    toast.success('Complaint marked as resolved!');
+    
+    // Update local state
+    setComplaints(prev => 
+      prev.map(complaint => 
+        complaint.id === complaintId 
+          ? { 
+              ...complaint, 
+              status: 'resolved',
+              renter_marked_resolved: true,
+              manager_marked_resolved: true, // Assume manager also agrees
+              resolved_at: new Date().toISOString()
+            }
+          : complaint
+      )
+    );
+    
+    // Update stats
+    setStats(prev => ({
+      ...prev,
+      resolved: prev.resolved + 1,
+      in_progress: Math.max(0, prev.in_progress - 1)
+    }));
+    
+  } catch (error) {
+    console.error('Failed to mark as resolved:', error);
+    toast.error('Failed to mark complaint as resolved');
+  }
+};
 
   const handleConfirmResolution = async (complaintId: number) => {
     try {
@@ -310,12 +334,15 @@ const RenterComplaints = () => {
     }
   };
 
-  const getStatusText = (complaint: Complaint) => {
-    if (complaint.manager_marked_resolved && !complaint.renter_marked_resolved) {
-      return 'AWAITING CONFIRMATION';
-    }
-    return complaint.status.replace('_', ' ').toUpperCase();
-  };
+const getStatusText = (complaint: Complaint) => {
+  if (complaint.manager_marked_resolved && !complaint.renter_marked_resolved) {
+    return 'AWAITING YOUR CONFIRMATION';
+  }
+  if (complaint.status === 'resolved') {
+    return 'RESOLVED';
+  }
+  return complaint.status.replace('_', ' ').toUpperCase();
+};
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
@@ -547,38 +574,53 @@ const RenterComplaints = () => {
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <FaCalendar />
-                        <span>{new Date(complaint.created_at).toLocaleDateString()}</span>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleViewDetails(complaint)}
-                          className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                          title="View Details"
-                        >
-                          <FaEye />
-                        </button>
-                        {complaint.status === 'pending' && (
-                          <button
-                            onClick={() => handleUpdateStatus(complaint.id, 'escalate')}
-                            className="p-2 hover:bg-rose-50 rounded-lg transition-colors text-rose-600"
-                            title="Escalate"
-                          >
-                            <FaExclamationTriangle />
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDeleteComplaint(complaint.id)}
-                          className="p-2 hover:bg-rose-50 rounded-lg transition-colors text-rose-600"
-                          title="Delete"
-                        >
-                          <FaTrash />
-                        </button>
-                      </div>
-                    </td>
+  <div className="flex items-center gap-2">
+    <button
+      onClick={() => handleViewDetails(complaint)}
+      className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+      title="View Details"
+    >
+      <FaEye />
+    </button>
+    
+    {/* Add Mark as Resolved button for pending/in_progress complaints */}
+    {(complaint.status === 'pending' || complaint.status === 'in_progress') && (
+      <button
+        onClick={() => handleMarkResolved(complaint.id)}
+        className="p-2 hover:bg-emerald-50 rounded-lg transition-colors text-emerald-600"
+        title="Mark as Resolved"
+      >
+        <FaCheckCircle />
+      </button>
+    )}
+    
+    {/* Keep the Confirm Fixed button for manager-resolved complaints */}
+    {complaint.manager_marked_resolved && !complaint.renter_marked_resolved && (
+      <button
+        onClick={() => handleConfirmResolution(complaint.id)}
+        disabled={confirmingId === complaint.id}
+        className={`p-2 hover:bg-emerald-50 rounded-lg transition-colors text-emerald-600 ${
+          confirmingId === complaint.id ? 'opacity-50 cursor-not-allowed' : ''
+        }`}
+        title="Confirm Fixed"
+      >
+        {confirmingId === complaint.id ? (
+          <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-emerald-600"></div>
+        ) : (
+          <FaCheck />
+        )}
+      </button>
+    )}
+    
+    <button
+      onClick={() => handleDeleteComplaint(complaint.id)}
+      className="p-2 hover:bg-rose-50 rounded-lg transition-colors text-rose-600"
+      title="Delete"
+    >
+      <FaTrash />
+    </button>
+  </div>
+</td>
                   </tr>
                 ))
               )}
@@ -889,38 +931,55 @@ const RenterComplaints = () => {
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-3 pt-6 border-t">
-                  {selectedComplaint.status === 'pending' && (
-                    <>
-                      <button
-                        onClick={() => handleUpdateStatus(selectedComplaint.id, 'escalate')}
-                        className="px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 flex items-center gap-2 transition-colors"
-                      >
-                        <FaExclamationTriangle />
-                        Escalate
-                      </button>
-                      <button
-                        onClick={() => {
-                          const followUp = prompt('Add follow-up note:');
-                          if (followUp) {
-                            toast.success('Follow-up added');
-                          }
-                        }}
-                        className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 flex items-center gap-2 transition-colors"
-                      >
-                        <FaComments />
-                        Add Follow-up
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={() => handleDeleteComplaint(selectedComplaint.id)}
-                    className="px-4 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 flex items-center gap-2 transition-colors"
-                  >
-                    <FaTrash />
-                    Delete
-                  </button>
-                </div>
+  <div className="flex flex-wrap gap-3 pt-6 border-t">
+  {/* Add Mark as Resolved button */}
+  {(selectedComplaint.status === 'pending' || selectedComplaint.status === 'in_progress') && (
+    <button
+      onClick={() => {
+        handleMarkResolved(selectedComplaint.id);
+        setShowDetails(false);
+      }}
+      className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2 transition-colors"
+    >
+      <FaCheckCircle />
+      Mark as Resolved
+    </button>
+  )}
+  
+  {/* Keep the Confirm Fixed button */}
+  {selectedComplaint.manager_marked_resolved && !selectedComplaint.renter_marked_resolved && (
+    <button
+      onClick={() => {
+        handleConfirmResolution(selectedComplaint.id);
+        setShowDetails(false);
+      }}
+      disabled={confirmingId === selectedComplaint.id}
+      className={`px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2 transition-colors ${
+        confirmingId === selectedComplaint.id ? 'opacity-50 cursor-not-allowed' : ''
+      }`}
+    >
+      {confirmingId === selectedComplaint.id ? (
+        <>
+          <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+          Confirming...
+        </>
+      ) : (
+        <>
+          <FaCheckCircle />
+          Confirm Fixed
+        </>
+      )}
+    </button>
+  )}
+  
+  <button
+    onClick={() => handleDeleteComplaint(selectedComplaint.id)}
+    className="px-4 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 flex items-center gap-2 transition-colors"
+  >
+    <FaTrash />
+    Delete
+  </button>
+</div>
               </div>
             </div>
           </div>

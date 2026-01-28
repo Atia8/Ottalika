@@ -1059,4 +1059,59 @@ router.get('/documents', async (req: Request, res: Response) => {
   }
 });
 
+// PUT /api/renter/complaints/:id/resolve - Renter marks their own complaint as resolved
+router.put('/complaints/:id/resolve', async (req: Request, res: Response) => {
+  try {
+    const renterId = (req as any).renterId;
+    const complaintId = parseInt(req.params.id);
+    
+    // Check if complaint belongs to renter
+    const checkResult = await dbQuery(
+      'SELECT id, status FROM maintenance_requests WHERE id = $1 AND renter_id = $2',
+      [complaintId, renterId]
+    );
+    
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Complaint not found or access denied'
+      });
+    }
+    
+    // Only allow resolving if status is in_progress or pending
+    const complaint = checkResult.rows[0];
+    if (!['pending', 'in_progress'].includes(complaint.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only pending or in-progress complaints can be marked as resolved'
+      });
+    }
+    
+    // Update complaint: renter marks as resolved
+    await dbQuery(`
+      UPDATE maintenance_requests 
+      SET 
+        renter_marked_resolved = TRUE,
+        status = 'resolved',
+        updated_at = CURRENT_TIMESTAMP,
+        resolved_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+    `, [complaintId]);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Complaint marked as resolved'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Mark resolved error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark complaint as resolved'
+    });
+  }
+});
+
 export default router;
