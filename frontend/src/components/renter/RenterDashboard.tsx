@@ -253,8 +253,12 @@ const RenterDashboard = () => {
             <div>
               <p className="text-sm text-slate-600">Monthly Rent</p>
               <div className="flex items-baseline gap-1 mt-2">
-                <span className="text-lg">₹</span>
-                <p className="text-2xl font-bold text-slate-900">{stats.currentRent.toLocaleString()}</p>
+                <span className="text-lg">৳</span>
+                <p className="text-2xl font-bold text-slate-900">
+                  {typeof stats.currentRent === 'number' 
+                    ? stats.currentRent.toLocaleString('en-BD')
+                    : Number(stats.currentRent).toLocaleString('en-BD')}
+                </p>
               </div>
               <span className={`inline-block mt-2 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(stats.paymentStatus)}`}>
                 {stats.paymentStatus.charAt(0).toUpperCase() + stats.paymentStatus.slice(1)}
@@ -417,7 +421,11 @@ const RenterDashboard = () => {
                   <div key={payment.id} className="p-3 border rounded-lg hover:bg-slate-50">
                     <div className="flex justify-between items-center">
                       <span className="font-medium">{payment.month}</span>
-                      <span className="font-bold">₹{payment.amount.toLocaleString()}</span>
+                      <span className="font-bold">
+                        ৳{typeof payment.amount === 'number' 
+                          ? payment.amount.toLocaleString('en-BD')
+                          : Number(payment.amount).toLocaleString('en-BD')}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center mt-2 text-sm">
                       <span className="text-slate-500">

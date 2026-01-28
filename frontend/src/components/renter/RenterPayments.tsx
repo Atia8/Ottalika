@@ -76,25 +76,32 @@ const RenterPayments = () => {
       
       if (response.data.success) {
         const paymentsData = response.data.data.payments || [];
-        setPayments(paymentsData);
+        
+        // Convert amount strings to numbers and clean data
+        const cleanedPayments = paymentsData.map((payment: any) => ({
+          ...payment,
+          amount: cleanAndConvertAmount(payment.amount)
+        }));
+        
+        setPayments(cleanedPayments);
         
         // Calculate stats
-        const totalPaid = paymentsData
+        const totalPaid = cleanedPayments
           .filter(p => p.status === 'paid')
           .reduce((sum, p) => sum + p.amount, 0);
         
-        const totalPending = paymentsData
+        const totalPending = cleanedPayments
           .filter(p => p.status === 'pending')
           .reduce((sum, p) => sum + p.amount, 0);
         
-        const totalOverdue = paymentsData
+        const totalOverdue = cleanedPayments
           .filter(p => p.status === 'overdue')
           .reduce((sum, p) => sum + p.amount, 0);
         
-        const nextPayment = paymentsData
+        const nextPayment = cleanedPayments
           .find(p => p.status === 'pending')?.amount || 0;
         
-        const nextDueDate = paymentsData
+        const nextDueDate = cleanedPayments
           .find(p => p.status === 'pending')?.due_date || '';
         
         setStats({
@@ -110,6 +117,45 @@ const RenterPayments = () => {
       toast.error('Error loading payment data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Helper function to clean and convert amount
+  const cleanAndConvertAmount = (amount: any): number => {
+    if (amount === null || amount === undefined) {
+      return 0;
+    }
+    
+    // If it's already a number, return it
+    if (typeof amount === 'number') {
+      return amount;
+    }
+    
+    // If it's a string, clean it
+    if (typeof amount === 'string') {
+      // Remove all non-numeric characters except decimal point
+      const cleaned = amount.replace(/[^\d.-]/g, '');
+      const num = parseFloat(cleaned);
+      return isNaN(num) ? 0 : num;
+    }
+    
+    // For any other type, try to convert
+    const num = Number(amount);
+    return isNaN(num) ? 0 : num;
+  };
+
+  // Helper function to format amount for display
+  const formatAmountForDisplay = (amount: any): string => {
+    const numAmount = cleanAndConvertAmount(amount);
+    
+    // Format without decimals for whole numbers
+    if (numAmount % 1 === 0) {
+      return numAmount.toLocaleString('en-BD');
+    } else {
+      return numAmount.toLocaleString('en-BD', { 
+        minimumFractionDigits: 2, 
+        maximumFractionDigits: 2 
+      });
     }
   };
 
@@ -236,7 +282,7 @@ const RenterPayments = () => {
             <div>
               <p className="text-sm text-slate-600">Total Paid</p>
               <p className="text-2xl font-bold text-emerald-600 mt-2">
-                ₹{stats.totalPaid.toLocaleString()}
+                ৳{formatAmountForDisplay(stats.totalPaid)}
               </p>
             </div>
             <FaCheckCircle className="text-2xl text-emerald-500" />
@@ -248,7 +294,7 @@ const RenterPayments = () => {
             <div>
               <p className="text-sm text-slate-600">Pending</p>
               <p className="text-2xl font-bold text-amber-600 mt-2">
-                ₹{stats.totalPending.toLocaleString()}
+                ৳{formatAmountForDisplay(stats.totalPending)}
               </p>
             </div>
             <FaClock className="text-2xl text-amber-500" />
@@ -260,7 +306,7 @@ const RenterPayments = () => {
             <div>
               <p className="text-sm text-slate-600">Overdue</p>
               <p className="text-2xl font-bold text-rose-600 mt-2">
-                ₹{stats.totalOverdue.toLocaleString()}
+                ৳{formatAmountForDisplay(stats.totalOverdue)}
               </p>
             </div>
             <FaExclamationTriangle className="text-2xl text-rose-500" />
@@ -277,7 +323,7 @@ const RenterPayments = () => {
                   month: 'short'
                 }) : 'N/A'}
               </p>
-              <p className="text-xs text-slate-500">₹{stats.nextPayment.toLocaleString()}</p>
+              <p className="text-xs text-slate-500">৳{formatAmountForDisplay(stats.nextPayment)}</p>
             </div>
             <FaCalendar className="text-2xl text-blue-500" />
           </div>
@@ -400,9 +446,11 @@ const RenterPayments = () => {
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className="flex items-center gap-1">
-                        <span className="text-lg">₹</span>
-                        <p className="text-xl font-bold text-slate-900">{payment.amount.toLocaleString()}</p>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-lg">৳</span>
+                        <p className="text-xl font-bold text-slate-900">
+                          {formatAmountForDisplay(payment.amount)}
+                        </p>
                       </div>
                     </td>
                     <td className="p-4">
@@ -576,7 +624,7 @@ const RenterPayments = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Amount (₹)
+                    Amount (৳)
                   </label>
                   <input
                     type="number"

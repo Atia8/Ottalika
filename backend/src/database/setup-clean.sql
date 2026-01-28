@@ -867,3 +867,66 @@ JOIN renters r ON mr.renter_id = r.id
 JOIN apartments a ON mr.apartment_id = a.id
 ORDER BY mr.created_at DESC
 LIMIT 5;
+
+-- ==================== ADD ESSENTIAL DEMO RENTER DATA ====================
+
+-- 1. Make sure Demo Renter has an apartment
+UPDATE apartments 
+SET current_renter_id = 6 
+WHERE apartment_number = '103' AND building_id = 1;
+
+-- 2. Add 6 months of payment history for Demo Renter
+INSERT INTO payments (apartment_id, renter_id, amount, month, due_date, status, payment_method, transaction_id, paid_at) VALUES
+-- Current month - pending
+(3, 6, 8500.00, '2025-02-01', '2025-02-05', 'pending', NULL, NULL, NULL),
+-- Last month - paid
+(3, 6, 8500.00, '2025-01-01', '2025-01-05', 'paid', 'bkash', 'TRX-D001', '2025-01-03 11:30:00'),
+-- 2 months ago - paid
+(3, 6, 8500.00, '2024-12-01', '2024-12-05', 'paid', 'nagad', 'TRX-D002', '2024-12-02 14:45:00'),
+-- 3 months ago - paid (late)
+(3, 6, 8500.00, '2024-11-01', '2024-11-05', 'paid', 'bank_transfer', 'TRX-D003', '2024-11-08 09:20:00'),
+-- 4 months ago - overdue
+(3, 6, 8500.00, '2024-10-01', '2024-10-05', 'overdue', NULL, NULL, NULL),
+-- 5 months ago - paid
+(3, 6, 8500.00, '2024-09-01', '2024-09-05', 'paid', 'cash', NULL, '2024-09-04 13:15:00');
+
+-- 3. Add payment confirmations for paid payments
+INSERT INTO payment_confirmations (payment_id, manager_id, status, verified_at) VALUES
+((SELECT id FROM payments WHERE renter_id = 6 AND month = '2025-01-01'), 1, 'verified', '2025-01-03 12:00:00'),
+((SELECT id FROM payments WHERE renter_id = 6 AND month = '2024-12-01'), 1, 'verified', '2024-12-02 15:00:00'),
+((SELECT id FROM payments WHERE renter_id = 6 AND month = '2024-09-01'), 1, 'pending_review', NULL);
+
+-- 4. Add 4 representative maintenance requests for Demo Renter
+INSERT INTO maintenance_requests (apartment_id, renter_id, title, description, category, type, priority, status, assigned_to, estimated_cost, actual_cost, completed_at, notes, manager_marked_resolved, renter_marked_resolved, resolution, resolution_notes, assigned_at) VALUES
+-- 1. Pending complaint
+(3, 6, 'AC Remote Not Working', 'AC remote needs new batteries', 'general', 'repair', 'medium', 'pending', NULL, 500, NULL, NULL, 'Simple battery replacement', FALSE, FALSE, NULL, NULL, NULL),
+
+-- 2. In Progress complaint
+(3, 6, 'Kitchen Cabinet Loose', 'Bottom cabinet door hinge broken', 'general', 'repair', 'medium', 'in_progress', 'Carpenter Team', 1500, NULL, NULL, 'Needs hinge replacement', FALSE, FALSE, NULL, NULL, '2025-01-20 10:00:00'),
+
+-- 3. Completed - needs renter confirmation
+(3, 6, 'Bathroom Fan Noisy', 'Exhaust fan making loud noise', 'electric', 'repair', 'high', 'completed', 'Electrician', 2000, 1800, '2025-01-15 14:30:00', 'Fan motor issue', TRUE, FALSE, 'Lubricated fan motor', 'Awaiting renter confirmation', '2025-01-10 09:00:00'),
+
+-- 4. Fully Resolved
+(3, 6, 'Window Curtain Rod', 'Living room curtain rod fell down', 'general', 'repair', 'medium', 'resolved', 'Maintenance Team', 800, 750, '2024-12-10 11:00:00', 'Wall anchors broken', TRUE, TRUE, 'Replaced wall anchors', 'Renter confirmed fixed', '2024-12-05 14:00:00');
+
+-- 5. Add 3 recent bills for Demo Renter's building
+INSERT INTO bills (manager_id, title, amount, due_date, paid_date, status) VALUES
+(1, 'Building Maintenance - Jan 2025', 2000.00, '2025-01-10', '2025-01-09', 'paid'),
+(1, 'Building Maintenance - Feb 2025', 2000.00, '2025-02-10', NULL, 'pending'),
+(1, 'Parking Fee - Jan 2025', 1000.00, '2025-01-15', '2025-01-14', 'paid');
+
+-- 6. Add utility bills
+INSERT INTO utility_bills (type, building_id, amount, due_date, status, provider, account_number, month, consumption, description) VALUES
+('electricity', 1, 8500, '2025-01-10', 'paid', 'National Grid', 'NG-103', 'January 2025', '680 kWh', 'Apartment 103'),
+('water', 1, 3500, '2025-01-15', 'paid', 'Water Corporation', 'WC-103', 'January 2025', '45 m³', 'Apartment 103'),
+('internet', 1, 1200, '2025-01-25', 'pending', 'Broadband Inc', 'BB-103', 'January 2025', NULL, 'Monthly internet');
+
+-- 7. Add a few audit logs for Demo Renter
+INSERT INTO renters_audit_log (renter_id, old_status, new_status, change_reason) VALUES
+(6, 'pending', 'active', 'Demo account activated'),
+(6, 'active', 'active', 'Contract renewal');
+
+INSERT INTO maintenance_audit_log (request_id, old_status, new_status, change_reason) VALUES
+((SELECT id FROM maintenance_requests WHERE renter_id = 6 AND title = 'Bathroom Fan Noisy'), 'pending', 'in_progress', 'Assigned to electrician'),
+((SELECT id FROM maintenance_requests WHERE renter_id = 6 AND title = 'Bathroom Fan Noisy'), 'in_progress', 'completed', 'Repair completed');

@@ -1,4 +1,3 @@
-// backend/src/routes/renterRoutes.ts
 import { Router, Request, Response } from 'express';
 import { pool } from '../database/db';
 
@@ -15,11 +14,9 @@ const dbQuery = async (text: string, params?: any[]) => {
   }
 };
 
-// Mock authentication middleware (replace with real auth)
+// Mock authentication middleware
 const authenticateRenter = async (req: Request, res: Response, next: Function) => {
   try {
-    // For demo purposes, we'll extract renter ID from auth token
-    // In production, use JWT verification
     const token = req.headers.authorization?.split(' ')[1];
     
     if (!token) {
@@ -29,8 +26,8 @@ const authenticateRenter = async (req: Request, res: Response, next: Function) =
       });
     }
     
-    // For demo, use user ID 3 (demo renter) or extract from token
-    (req as any).renterId = 6; // Demo renter ID (the last one from your seed data)
+    // For demo, use renter ID from your database (Demo Renter)
+    (req as any).renterId = 6; // Demo Renter ID from your seed data
     next();
   } catch (error) {
     res.status(401).json({
@@ -47,7 +44,6 @@ router.get('/dashboard', async (req: Request, res: Response) => {
   try {
     const renterId = (req as any).renterId;
     
-    // Get renter profile with apartment info
     const profileResult = await dbQuery(`
       SELECT 
         r.*,
@@ -73,7 +69,6 @@ router.get('/dashboard', async (req: Request, res: Response) => {
     
     const profile = profileResult.rows[0];
     
-    // Get current month payment status
     const paymentResult = await dbQuery(`
       SELECT status, paid_at 
       FROM payments 
@@ -82,7 +77,6 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       LIMIT 1
     `, [renterId]);
     
-    // Get pending complaints count
     const complaintsResult = await dbQuery(`
       SELECT COUNT(*) as pending_count
       FROM maintenance_requests 
@@ -90,10 +84,6 @@ router.get('/dashboard', async (req: Request, res: Response) => {
         AND status IN ('pending', 'in_progress')
     `, [renterId]);
     
-    // Get unread messages count (mock for now)
-    const unreadCount = 0;
-    
-    // Get next due date
     const nextPaymentResult = await dbQuery(`
       SELECT due_date, amount
       FROM payments 
@@ -104,7 +94,6 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       LIMIT 1
     `, [renterId]);
     
-    // Get recent payments (last 3)
     const recentPaymentsResult = await dbQuery(`
       SELECT id, month, amount, status, due_date, paid_at, payment_method
       FROM payments 
@@ -113,7 +102,6 @@ router.get('/dashboard', async (req: Request, res: Response) => {
       LIMIT 3
     `, [renterId]);
     
-    // Get recent complaints (last 3)
     const recentComplaintsResult = await dbQuery(`
       SELECT id, title, status, priority, created_at
       FROM maintenance_requests 
@@ -131,13 +119,13 @@ router.get('/dashboard', async (req: Request, res: Response) => {
           next_due_date: nextPaymentResult.rows[0]?.due_date || null,
           next_payment_amount: nextPaymentResult.rows[0]?.amount || profile.rent_amount,
           pending_complaints: parseInt(complaintsResult.rows[0]?.pending_count) || 0,
-          unread_messages: unreadCount
+          unread_messages: 0
         },
         stats: {
           current_rent: profile.rent_amount || 0,
           payment_status: paymentResult.rows[0]?.status || 'pending',
           pending_complaints: parseInt(complaintsResult.rows[0]?.pending_count) || 0,
-          unread_messages: unreadCount
+          unread_messages: 0
         },
         recent_payments: recentPaymentsResult.rows,
         recent_complaints: recentComplaintsResult.rows
@@ -273,7 +261,6 @@ router.get('/payments', async (req: Request, res: Response) => {
     
     const result = await dbQuery(query, params);
     
-    // Get payment stats
     const statsResult = await dbQuery(`
       SELECT 
         COUNT(*) as total,
@@ -348,7 +335,6 @@ router.post('/payments/make', async (req: Request, res: Response) => {
     const renterId = (req as any).renterId;
     const { month, amount, payment_method, transaction_id } = req.body;
     
-    // Validate required fields
     if (!month || !amount || !payment_method) {
       return res.status(400).json({
         success: false,
@@ -356,7 +342,6 @@ router.post('/payments/make', async (req: Request, res: Response) => {
       });
     }
     
-    // Get apartment ID
     const apartmentResult = await dbQuery(
       'SELECT id, rent_amount FROM apartments WHERE current_renter_id = $1',
       [renterId]
@@ -372,7 +357,6 @@ router.post('/payments/make', async (req: Request, res: Response) => {
     const apartmentId = apartmentResult.rows[0].id;
     const rentAmount = apartmentResult.rows[0].rent_amount;
     
-    // Validate amount matches rent
     if (parseFloat(amount) < parseFloat(rentAmount)) {
       return res.status(400).json({
         success: false,
@@ -383,7 +367,6 @@ router.post('/payments/make', async (req: Request, res: Response) => {
     const dueDate = new Date(month);
     dueDate.setDate(dueDate.getDate() + 5);
     
-    // Check if payment already exists for this month
     const existingPayment = await dbQuery(`
       SELECT id FROM payments 
       WHERE renter_id = $1 
@@ -397,7 +380,6 @@ router.post('/payments/make', async (req: Request, res: Response) => {
       });
     }
     
-    // Create payment record
     const result = await dbQuery(`
       INSERT INTO payments (
         apartment_id,
@@ -413,7 +395,6 @@ router.post('/payments/make', async (req: Request, res: Response) => {
       RETURNING id, amount, month, status
     `, [apartmentId, renterId, amount, month, dueDate, payment_method, transaction_id]);
     
-    // Create payment confirmation
     await dbQuery(`
       INSERT INTO payment_confirmations (payment_id, status)
       VALUES ($1, 'pending_review')
@@ -449,7 +430,11 @@ router.get('/complaints', async (req: Request, res: Response) => {
         a.floor,
         b.name as building_name,
         COALESCE(mr.manager_marked_resolved, FALSE) as manager_marked_resolved,
-        COALESCE(mr.renter_marked_resolved, FALSE) as renter_marked_resolved
+        COALESCE(mr.renter_marked_resolved, FALSE) as renter_marked_resolved,
+        mr.resolution,
+        mr.resolution_notes,
+        mr.assigned_at,
+        mr.completed_at
       FROM maintenance_requests mr
       JOIN apartments a ON mr.apartment_id = a.id
       LEFT JOIN buildings b ON a.building_id = b.id
@@ -459,15 +444,18 @@ router.get('/complaints', async (req: Request, res: Response) => {
     const params: any[] = [renterId];
     
     if (status && status !== 'all') {
-      query += ' AND mr.status = $2';
-      params.push(status);
+      if (status === 'needs_confirmation') {
+        query += ' AND mr.manager_marked_resolved = TRUE AND mr.renter_marked_resolved = FALSE';
+      } else {
+        query += ' AND mr.status = $2';
+        params.push(status);
+      }
     }
     
     query += ' ORDER BY mr.created_at DESC';
     
     const result = await dbQuery(query, params);
     
-    // Get complaint stats
     const statsResult = await dbQuery(`
       SELECT 
         COUNT(*) as total,
@@ -481,10 +469,15 @@ router.get('/complaints', async (req: Request, res: Response) => {
       WHERE renter_id = $1
     `, [renterId]);
     
+    const processedComplaints = result.rows.map(complaint => ({
+      ...complaint,
+      needs_renter_confirmation: complaint.manager_marked_resolved && !complaint.renter_marked_resolved
+    }));
+    
     res.status(200).json({
       success: true,
       data: {
-        complaints: result.rows,
+        complaints: processedComplaints,
         stats: statsResult.rows[0],
         total: result.rowCount
       }
@@ -542,7 +535,6 @@ router.post('/complaints', async (req: Request, res: Response) => {
     const renterId = (req as any).renterId;
     const { title, category, priority, description } = req.body;
     
-    // Validate required fields
     if (!title || !description) {
       return res.status(400).json({
         success: false,
@@ -550,7 +542,6 @@ router.post('/complaints', async (req: Request, res: Response) => {
       });
     }
     
-    // Get apartment ID
     const apartmentResult = await dbQuery(
       'SELECT id FROM apartments WHERE current_renter_id = $1',
       [renterId]
@@ -598,13 +589,132 @@ router.post('/complaints', async (req: Request, res: Response) => {
   }
 });
 
+// PUT /api/renter/complaints/:id/resolve - Renter marks their own complaint as resolved
+router.put('/complaints/:id/resolve', async (req: Request, res: Response) => {
+  try {
+    const renterId = (req as any).renterId;
+    const complaintId = parseInt(req.params.id);
+    
+    const checkResult = await dbQuery(
+      'SELECT id, status FROM maintenance_requests WHERE id = $1 AND renter_id = $2',
+      [complaintId, renterId]
+    );
+    
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Complaint not found or access denied'
+      });
+    }
+    
+    const complaint = checkResult.rows[0];
+    if (!['pending', 'in_progress'].includes(complaint.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only pending or in-progress complaints can be marked as resolved'
+      });
+    }
+    
+    await dbQuery(`
+      UPDATE maintenance_requests 
+      SET 
+        renter_marked_resolved = TRUE,
+        manager_marked_resolved = TRUE,
+        status = 'resolved',
+        updated_at = CURRENT_TIMESTAMP,
+        resolved_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `, [complaintId]);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Complaint marked as resolved'
+      }
+    });
+    
+  } catch (error) {
+    console.error('Mark resolved error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark complaint as resolved'
+    });
+  }
+});
+
+// PUT /api/renter/complaints/:id/confirm-resolve - Renter confirms manager's resolution
+router.put('/complaints/:id/confirm-resolve', async (req: Request, res: Response) => {
+  try {
+    const renterId = (req as any).renterId;
+    const complaintId = parseInt(req.params.id);
+    
+    const checkResult = await dbQuery(`
+      SELECT 
+        id, 
+        COALESCE(manager_marked_resolved, FALSE) as manager_marked_resolved, 
+        COALESCE(renter_marked_resolved, FALSE) as renter_marked_resolved, 
+        status
+      FROM maintenance_requests 
+      WHERE id = $1 AND renter_id = $2
+    `, [complaintId, renterId]);
+    
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Complaint not found or access denied'
+      });
+    }
+    
+    const complaint = checkResult.rows[0];
+    
+    if (!complaint.manager_marked_resolved) {
+      return res.status(400).json({
+        success: false,
+        message: 'Manager has not marked this complaint as resolved yet'
+      });
+    }
+    
+    if (complaint.renter_marked_resolved) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have already confirmed this resolution'
+      });
+    }
+    
+    const updateResult = await dbQuery(`
+      UPDATE maintenance_requests 
+      SET 
+        renter_marked_resolved = TRUE,
+        status = 'resolved',
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `, [complaintId]);
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Resolution confirmed! Complaint is now fully resolved.',
+        complaint: updateResult.rows[0]
+      }
+    });
+    
+  } catch (error) {
+    console.error('Confirm resolution error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to confirm resolution'
+    });
+  }
+});
+
 // PUT /api/renter/complaints/:id/escalate - Escalate complaint
 router.put('/complaints/:id/escalate', async (req: Request, res: Response) => {
   try {
     const renterId = (req as any).renterId;
     const complaintId = parseInt(req.params.id);
     
-    // Check if complaint belongs to renter
     const checkResult = await dbQuery(
       'SELECT id, priority FROM maintenance_requests WHERE id = $1 AND renter_id = $2',
       [complaintId, renterId]
@@ -617,7 +727,6 @@ router.put('/complaints/:id/escalate', async (req: Request, res: Response) => {
       });
     }
     
-    // Update priority to higher level
     const currentPriority = checkResult.rows[0].priority;
     let newPriority = 'high';
     
@@ -653,85 +762,12 @@ router.put('/complaints/:id/escalate', async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api/renter/complaints/:id/confirm-resolve - Renter confirms resolution
-router.put('/complaints/:id/confirm-resolve', async (req: Request, res: Response) => {
-  try {
-    const renterId = (req as any).renterId;
-    const complaintId = parseInt(req.params.id);
-    
-    console.log(`✅ Renter ${renterId} confirming resolution for complaint ${complaintId}`);
-    
-    // Check if complaint exists and belongs to renter
-    const checkResult = await dbQuery(`
-      SELECT 
-        id, 
-        COALESCE(manager_marked_resolved, FALSE) as manager_marked_resolved, 
-        COALESCE(renter_marked_resolved, FALSE) as renter_marked_resolved, 
-        status
-      FROM maintenance_requests 
-      WHERE id = $1 AND renter_id = $2
-    `, [complaintId, renterId]);
-    
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Complaint not found or access denied'
-      });
-    }
-    
-    const complaint = checkResult.rows[0];
-    
-    // Check if manager has marked as resolved
-    if (!complaint.manager_marked_resolved) {
-      return res.status(400).json({
-        success: false,
-        message: 'Manager has not marked this complaint as resolved yet'
-      });
-    }
-    
-    // Check if already confirmed by renter
-    if (complaint.renter_marked_resolved) {
-      return res.status(400).json({
-        success: false,
-        message: 'You have already confirmed this resolution'
-      });
-    }
-    
-    // Update complaint: renter confirms resolution
-    const updateResult = await dbQuery(`
-      UPDATE maintenance_requests 
-      SET 
-        renter_marked_resolved = TRUE,
-        status = 'resolved',
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-      RETURNING *
-    `, [complaintId]);
-    
-    res.status(200).json({
-      success: true,
-      data: {
-        message: 'Resolution confirmed! Complaint is now fully resolved.',
-        complaint: updateResult.rows[0]
-      }
-    });
-    
-  } catch (error) {
-    console.error('Confirm resolution error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to confirm resolution'
-    });
-  }
-});
-
 // DELETE /api/renter/complaints/:id - Delete complaint
 router.delete('/complaints/:id', async (req: Request, res: Response) => {
   try {
     const renterId = (req as any).renterId;
     const complaintId = parseInt(req.params.id);
     
-    // Check if complaint belongs to renter
     const checkResult = await dbQuery(
       'SELECT id FROM maintenance_requests WHERE id = $1 AND renter_id = $2',
       [complaintId, renterId]
@@ -744,7 +780,6 @@ router.delete('/complaints/:id', async (req: Request, res: Response) => {
       });
     }
     
-    // Delete only if status is pending
     const statusResult = await dbQuery(
       'SELECT status FROM maintenance_requests WHERE id = $1',
       [complaintId]
@@ -775,10 +810,9 @@ router.delete('/complaints/:id', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/renter/contacts - Get contacts (managers, owners)
+// GET /api/renter/contacts - Get contacts
 router.get('/contacts', async (req: Request, res: Response) => {
   try {
-    // Get building managers and owners
     const result = await dbQuery(`
       SELECT 
         m.id,
@@ -825,12 +859,9 @@ router.get('/contacts', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/renter/messages - Get messages (mock data)
+// GET /api/renter/messages - Get messages
 router.get('/messages', async (req: Request, res: Response) => {
   try {
-    const renterId = (req as any).renterId;
-    
-    // Mock messages - in production, implement actual messaging system
     const mockMessages = [
       {
         id: 1,
@@ -906,7 +937,6 @@ router.post('/messages/send', async (req: Request, res: Response) => {
     const renterId = (req as any).renterId;
     const { to, subject, content } = req.body;
     
-    // Validate required fields
     if (!to || !subject || !content) {
       return res.status(400).json({
         success: false,
@@ -914,8 +944,6 @@ router.post('/messages/send', async (req: Request, res: Response) => {
       });
     }
     
-    // In production, insert into messages table
-    // For now, return success
     res.status(201).json({
       success: true,
       data: {
@@ -936,8 +964,6 @@ router.post('/messages/send', async (req: Request, res: Response) => {
 // PUT /api/renter/messages/:id/read - Mark message as read
 router.put('/messages/:id/read', async (req: Request, res: Response) => {
   try {
-    // In production, update message read status
-    // For now, return success
     res.status(200).json({
       success: true,
       data: {
@@ -959,8 +985,6 @@ router.put('/messages/:id/important', async (req: Request, res: Response) => {
   try {
     const { important } = req.body;
     
-    // In production, update message important status
-    // For now, return success
     res.status(200).json({
       success: true,
       data: {
@@ -980,8 +1004,6 @@ router.put('/messages/:id/important', async (req: Request, res: Response) => {
 // DELETE /api/renter/messages/:id - Delete message
 router.delete('/messages/:id', async (req: Request, res: Response) => {
   try {
-    // In production, delete message from database
-    // For now, return success
     res.status(200).json({
       success: true,
       data: {
@@ -1001,9 +1023,6 @@ router.delete('/messages/:id', async (req: Request, res: Response) => {
 // GET /api/renter/documents - Get available documents
 router.get('/documents', async (req: Request, res: Response) => {
   try {
-    const renterId = (req as any).renterId;
-    
-    // Mock documents - in production, fetch from documents table
     const mockDocuments = [
       {
         id: 1,
@@ -1055,61 +1074,6 @@ router.get('/documents', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to get documents'
-    });
-  }
-});
-
-// PUT /api/renter/complaints/:id/resolve - Renter marks their own complaint as resolved
-router.put('/complaints/:id/resolve', async (req: Request, res: Response) => {
-  try {
-    const renterId = (req as any).renterId;
-    const complaintId = parseInt(req.params.id);
-    
-    // Check if complaint belongs to renter
-    const checkResult = await dbQuery(
-      'SELECT id, status FROM maintenance_requests WHERE id = $1 AND renter_id = $2',
-      [complaintId, renterId]
-    );
-    
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Complaint not found or access denied'
-      });
-    }
-    
-    // Only allow resolving if status is in_progress or pending
-    const complaint = checkResult.rows[0];
-    if (!['pending', 'in_progress'].includes(complaint.status)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Only pending or in-progress complaints can be marked as resolved'
-      });
-    }
-    
-    // Update complaint: renter marks as resolved
-    await dbQuery(`
-      UPDATE maintenance_requests 
-      SET 
-        renter_marked_resolved = TRUE,
-        status = 'resolved',
-        updated_at = CURRENT_TIMESTAMP,
-        resolved_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-    `, [complaintId]);
-    
-    res.status(200).json({
-      success: true,
-      data: {
-        message: 'Complaint marked as resolved'
-      }
-    });
-    
-  } catch (error) {
-    console.error('Mark resolved error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to mark complaint as resolved'
     });
   }
 });
