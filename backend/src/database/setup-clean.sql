@@ -1,4 +1,4 @@
--- ==================== CLEAN SLATE - DROP EVERYTHING ====================
+-- DROP ALL TABLES AND TYPES FIRST
 DROP TABLE IF EXISTS payment_audit_log CASCADE;
 DROP TABLE IF EXISTS renters_audit_log CASCADE;
 DROP TABLE IF EXISTS maintenance_audit_log CASCADE;
@@ -232,9 +232,10 @@ CREATE TABLE bills (
 );
 
 -- 14. Utility bills table for separate utility bills (Your enhanced version)
+-- UPDATED: Using the new types you want
 CREATE TABLE utility_bills (
     id SERIAL PRIMARY KEY,
-    type VARCHAR(50) NOT NULL CHECK (type IN ('electricity', 'water', 'gas', 'cleaning', 'security', 'internet', 'other')),
+    type VARCHAR(50) NOT NULL CHECK (type IN ('Building Maintenance', 'Maintenance Fee', 'Gas', 'Electricity', 'Water', 'Security', 'Internet', 'Garbage')),
     building_id INTEGER REFERENCES buildings(id) ON DELETE CASCADE,
     amount DECIMAL(10,2) NOT NULL,
     due_date DATE NOT NULL,
@@ -516,18 +517,20 @@ INSERT INTO maintenance_requests (apartment_id, renter_id, title, description, c
 (3, 6, 'Bathroom Fan Noisy', 'Exhaust fan making loud noise', 'electric', 'repair', 'high', 'completed', 'Electrician', 2000, 1800, '2025-01-15 14:30:00', 'Fan motor issue', TRUE, FALSE, 'Lubricated fan motor', 'Awaiting renter confirmation', '2025-01-10 09:00:00'),
 (3, 6, 'Window Curtain Rod', 'Living room curtain rod fell down', 'general', 'repair', 'medium', 'resolved', 'Maintenance Team', 800, 750, '2024-12-10 11:00:00', 'Wall anchors broken', TRUE, TRUE, 'Replaced wall anchors', 'Renter confirmed fixed', '2024-12-05 14:00:00');
 
--- Insert utility bills (Owner can see these)
+-- ============ INSERT EXACTLY 8 UTILITY BILLS (NO DUPLICATES) ============
+-- First, ensure no existing utility bills
+DELETE FROM utility_bills;
+
+-- Insert simplified utility bills (8 items ONLY)
 INSERT INTO utility_bills (type, building_id, amount, due_date, status, provider, account_number, month, consumption, description) VALUES
-('electricity', 1, 15000, '2025-01-10', 'pending', 'National Grid', 'NG-123456', 'January 2025', '1200 kWh', 'Monthly electricity bill'),
-('water', 1, 8000, '2025-01-15', 'pending', 'Water Corporation', 'WC-789012', 'January 2025', '150 m³', 'Water utility bill'),
-('cleaning', 1, 20000, '2025-01-20', 'pending', 'CleanPro Services', 'CP-345678', 'January 2025', NULL, 'Monthly cleaning services'),
-('security', 1, 15000, '2025-01-25', 'paid', 'SecureGuard', 'SG-901234', 'January 2025', NULL, 'Security services'),
-('electricity', 2, 25000, '2025-01-10', 'pending', 'National Grid', 'NG-654321', 'January 2025', '2000 kWh', 'Monthly electricity bill'),
-('water', 2, 12000, '2025-01-15', 'pending', 'Water Corporation', 'WC-210987', 'January 2025', '200 m³', 'Water utility bill'),
-('electricity', 1, 8500, '2025-01-10', 'paid', 'National Grid', 'NG-103', 'January 2025', '680 kWh', 'Apartment 103'),
-('water', 1, 3500, '2025-01-15', 'paid', 'Water Corporation', 'WC-103', 'January 2025', '45 m³', 'Apartment 103'),
-('internet', 1, 1200, '2025-01-25', 'pending', 'Broadband Inc', 'BB-103', 'January 2025', NULL, 'Monthly internet'),
-('electricity', 3, 18000, '2025-01-10', 'pending', 'National Grid', 'NG-789012', 'January 2025', '1400 kWh', 'Owner 2 building');
+('Building Maintenance', 1, 2000.00, '2025-02-10', 'upcoming', 'Building Management', NULL, 'February 2025', NULL, 'Feb 2025 Maintenance Bill'),
+('Gas', 1, 4000.00, '2025-11-30', 'upcoming', 'Titas Gas', NULL, 'November 2025', NULL, 'Gas Supply Bill'),
+('Electricity', 1, 15000.00, '2025-12-05', 'paid', 'National Grid', 'NG-123456', 'December 2025', '1200 kWh', 'Monthly Electricity Bill'),
+('Water', 1, 6000.00, '2025-12-07', 'paid', 'WASA', NULL, 'December 2025', NULL, 'Water Supply Bill'),
+('Maintenance Fee', 1, 10000.00, '2025-12-10', 'paid', 'Building Management', NULL, 'December 2025', NULL, 'Monthly Maintenance Fee'),
+('Security', 1, 8000.00, '2025-12-15', 'paid', 'SecureGuard Ltd.', NULL, 'December 2025', NULL, 'Security Service Bill'),
+('Internet', 1, 3000.00, '2026-01-05', 'upcoming', 'Bdcom Online', NULL, 'January 2026', NULL, 'Monthly Internet Bill'),
+('Garbage', 1, 2500.00, '2026-01-10', 'upcoming', 'City Corporation', NULL, 'January 2026', NULL, 'Garbage Collection Bill');
 
 -- Insert bills (Manager bills)
 INSERT INTO bills (manager_id, title, amount, due_date, paid_date, status) VALUES
@@ -738,6 +741,115 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+
+--Proc
+
+CREATE OR REPLACE PROCEDURE resolve_maintenance_request(
+    request_id INTEGER,
+    resolution_text TEXT,
+    actual_cost DECIMAL(10,2),
+    manager_id INTEGER
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Update maintenance request
+    UPDATE maintenance_requests
+    SET 
+        status = 'completed',
+        resolution = resolution_text,
+        actual_cost = actual_cost,
+        completed_at = CURRENT_TIMESTAMP,
+        manager_marked_resolved = TRUE
+    WHERE id = request_id;
+    
+    -- Log the resolution
+    INSERT INTO maintenance_audit_log (request_id, old_status, new_status, change_reason, changed_by)
+    VALUES (
+        request_id,
+        (SELECT status FROM maintenance_requests WHERE id = request_id),
+        'completed',
+        'Manager resolved maintenance',
+        manager_id
+    );
+    
+    RAISE NOTICE 'Maintenance request % resolved by manager %', request_id, manager_id;
+END;
+$$;
+
+--regex
+
+-- SQL Query for Data Validation API
+WITH validation_stats AS (
+  -- Renters table validation
+  SELECT 
+    'renters' as table_name,
+    COUNT(*) as total_records,
+    COUNT(CASE WHEN phone ~ '^(?:\+?88)?01[3-9]\d{8}$' THEN 1 END) as valid_phones,
+    COUNT(CASE WHEN email ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$' THEN 1 END) as valid_emails,
+    COUNT(CASE WHEN nid_number ~ '^\d{10}$|^\d{13}$|^\d{17}$' THEN 1 END) as valid_nids,
+    NULL as valid_apt_numbers,
+    NULL as valid_transactions,
+    NULL as valid_amounts
+  FROM renters
+  
+  UNION ALL
+  
+  -- Apartments table validation  
+  SELECT 
+    'apartments' as table_name,
+    COUNT(*) as total_records,
+    NULL as valid_phones,
+    NULL as valid_emails,
+    NULL as valid_nids,
+    COUNT(CASE WHEN apartment_number ~ '^(?:[A-Z]?\d+|[A-Z])$' THEN 1 END) as valid_apt_numbers,
+    NULL as valid_transactions,
+    NULL as valid_amounts
+  FROM apartments
+  
+  UNION ALL
+  
+  -- Payments table validation
+  SELECT 
+    'payments' as table_name,
+    COUNT(*) as total_records,
+    NULL as valid_phones,
+    NULL as valid_emails,
+    NULL as valid_nids,
+    NULL as valid_apt_numbers,
+    COUNT(CASE WHEN transaction_id ~ '^[A-Z0-9-_]+$' THEN 1 END) as valid_transactions,
+    COUNT(CASE WHEN amount::text ~ '^\d+(\.\d{1,2})?$' THEN 1 END) as valid_amounts
+  FROM payments
+  
+  UNION ALL
+  
+  -- Utility bills validation
+  SELECT 
+    'utility_bills' as table_name,
+    COUNT(*) as total_records,
+    NULL as valid_phones,
+    NULL as valid_emails,
+    NULL as valid_nids,
+    NULL as valid_apt_numbers,
+    COUNT(CASE WHEN account_number ~ '^[A-Z0-9-]+$' THEN 1 END) as valid_transactions,
+    COUNT(CASE WHEN amount::text ~ '^\d+(\.\d{1,2})?$' THEN 1 END) as valid_amounts
+  FROM utility_bills
+  
+  UNION ALL
+  
+  -- Users table validation
+  SELECT 
+    'users' as table_name,
+    COUNT(*) as total_records,
+    COUNT(CASE WHEN phone ~ '^(?:\+?88)?01[3-9]\d{8}$' THEN 1 END) as valid_phones,
+    COUNT(CASE WHEN email ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$' THEN 1 END) as valid_emails,
+    NULL as valid_nids,
+    NULL as valid_apt_numbers,
+    NULL as valid_transactions,
+    NULL as valid_amounts
+  FROM users
+)
+SELECT * FROM validation_stats;
 -- ==================== CREATE TRIGGERS ====================
 
 -- Update timestamps
@@ -868,6 +980,7 @@ LEFT JOIN owners o ON u.id = o.user_id AND u.role = 'owner'
 LEFT JOIN managers m ON u.id = m.user_id AND u.role = 'manager'
 LEFT JOIN renters r ON u.id = r.user_id AND u.role = 'renter';
 
+
 -- Owner dashboard view
 CREATE VIEW owner_dashboard_view AS
 SELECT 
@@ -947,6 +1060,7 @@ DECLARE
     total_rows BIGINT;
     has_dual_resolution BOOLEAN;
     has_owner_expenses BOOLEAN;
+    utility_bill_count INTEGER;
 BEGIN
     -- Count tables
     SELECT COUNT(*) INTO total_tables
@@ -990,6 +1104,9 @@ BEGIN
         WHERE table_name = 'owner_expenses'
     ) INTO has_owner_expenses;
     
+    -- Check utility bills count
+    SELECT COUNT(*) INTO utility_bill_count FROM utility_bills;
+    
     RAISE NOTICE '
     ============================================
     🚀 OTTALIKA DATABASE MERGE COMPLETE
@@ -1000,6 +1117,7 @@ BEGIN
     ✅ Inserted % total rows of sample data
     ✅ Dual-resolution columns: %s
     ✅ Owner expenses tracking: %s
+    ✅ Utility bills: %s (should be 8)
     ✅ Created 6 views for different roles
     ✅ Added 2 owners with separate buildings
     ✅ Added owner financial functions
@@ -1015,7 +1133,8 @@ BEGIN
     ============================================
     ', total_tables, total_rows, 
     CASE WHEN has_dual_resolution THEN '✅ YES' ELSE '❌ NO' END,
-    CASE WHEN has_owner_expenses THEN '✅ YES' ELSE '❌ NO' END;
+    CASE WHEN has_owner_expenses THEN '✅ YES' ELSE '❌ NO' END,
+    utility_bill_count;
 END $$;
 
 -- Show table counts
@@ -1137,4 +1256,4 @@ SELECT
 FROM owner_utility_bills_view
 WHERE owner_id = 1
 ORDER BY due_date DESC
-LIMIT 5;
+LIMIT 8;

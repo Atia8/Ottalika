@@ -1,4 +1,4 @@
-// src/routes/manager/bills.tsx - UPDATED VERSION (Utility Bills Only)
+// src/routes/manager/bills.tsx - UPDATED WITH PROPER TAKA FORMATTING
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
@@ -25,7 +25,9 @@ import {
   FaFire,
   FaWifi,
   FaTrash,
-  FaEdit
+  FaEdit,
+  FaTools,
+  FaTrashAlt
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
@@ -36,8 +38,9 @@ interface UtilityBill {
   type: string;
   building_name: string;
   amount: number;
+  amount_display?: string;
   due_date: string;
-  status: 'pending' | 'paid' | 'overdue';
+  status: 'upcoming' | 'pending' | 'paid' | 'overdue';
   provider?: string;
   account_number?: string;
   month?: string;
@@ -59,8 +62,8 @@ const ManagerBills = () => {
   const [showPayModal, setShowPayModal] = useState(false);
   
   const [newBill, setNewBill] = useState({
-    type: 'electricity',
-    building_id: '',
+    type: 'Building Maintenance',
+    building_id: '1',
     amount: '',
     due_date: '',
     provider: '',
@@ -79,6 +82,7 @@ const ManagerBills = () => {
 
   const [stats, setStats] = useState({
     total: 0,
+    upcoming: 0,
     pending: 0,
     paid: 0,
     overdue: 0,
@@ -93,28 +97,26 @@ const ManagerBills = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const params: any = {};
-      if (statusFilter !== 'all') {
-        params.status = statusFilter;
-      }
       
       const response = await axios.get(`${API_URL}/manager/bills/utility`, {
-        headers: { Authorization: `Bearer ${token}` },
-        params
+        headers: { Authorization: `Bearer ${token}` }
       });
       
       if (response.data.success) {
         const billsData = response.data.data.bills || [];
+        console.log('Fetched utility bills:', billsData);
+        
         setUtilityBills(billsData);
         
         const total = billsData.length;
+        const upcoming = billsData.filter(b => b.status === 'upcoming').length;
         const pending = billsData.filter(b => b.status === 'pending').length;
         const paid = billsData.filter(b => b.status === 'paid').length;
         const overdue = billsData.filter(b => b.status === 'overdue').length;
         const totalAmount = billsData.reduce((sum: number, bill: UtilityBill) => 
           sum + (bill.amount || 0), 0);
         
-        setStats({ total, pending, paid, overdue, totalAmount });
+        setStats({ total, upcoming, pending, paid, overdue, totalAmount });
       } else {
         toast.error('Failed to fetch utility bills');
         useMockData();
@@ -128,104 +130,139 @@ const ManagerBills = () => {
     }
   };
 
+  const formatCurrency = (amount: number) => {
+    // Proper Bangladeshi Taka formatting
+    const formatted = new Intl.NumberFormat('bn-BD', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(amount);
+    
+    return `৳${formatted}`;
+  };
+
   const useMockData = () => {
     const mockBills: UtilityBill[] = [
       {
         id: 1,
-        type: 'electricity',
+        type: 'Building Maintenance',
         building_name: 'Main Building',
-        amount: 15000,
-        due_date: '2024-02-10',
-        status: 'pending',
-        provider: 'National Grid',
-        account_number: 'NG-123456',
-        month: 'February 2024',
-        consumption: '1200 kWh',
-        description: 'Monthly electricity bill',
+        amount: 2000.00,
+        amount_display: '৳2,000.00',
+        due_date: '2025-02-10',
+        status: 'upcoming',
+        provider: 'Building Management',
+        description: 'Feb 2025 Maintenance Bill',
         building_id: 1
       },
       {
         id: 2,
-        type: 'water',
+        type: 'Gas',
         building_name: 'Main Building',
-        amount: 8000,
-        due_date: '2024-02-15',
-        status: 'pending',
-        provider: 'Water Corporation',
-        account_number: 'WC-789012',
-        month: 'February 2024',
-        consumption: '150 m³',
-        description: 'Water utility bill',
+        amount: 4000.00,
+        amount_display: '৳4,000.00',
+        due_date: '2025-11-30',
+        status: 'upcoming',
+        provider: 'Titas Gas',
+        description: 'Gas Supply Bill',
         building_id: 1
       },
       {
         id: 3,
-        type: 'cleaning',
-        building_name: 'Main Building',
-        amount: 20000,
-        due_date: '2024-02-20',
+        type: 'Electricity',
+        building_name: 'Green Valley Apartments',
+        amount: 15000.00,
+        amount_display: '৳15,000.00',
+        due_date: '2025-12-05',
         status: 'paid',
-        provider: 'CleanPro Services',
-        account_number: 'CP-345678',
-        month: 'February 2024',
-        paid_date: '2024-02-18',
-        paid_amount: 20000,
-        description: 'Monthly cleaning services',
-        building_id: 1
+        provider: 'National Grid',
+        account_number: 'NG-123456',
+        month: 'December 2025',
+        consumption: '1200 kWh',
+        description: 'Monthly Electricity Bill',
+        building_id: 2
       },
       {
         id: 4,
-        type: 'security',
+        type: 'Water',
         building_name: 'Main Building',
-        amount: 15000,
-        due_date: '2024-02-25',
-        status: 'overdue',
-        provider: 'SecureGuard',
-        account_number: 'SG-901234',
-        month: 'February 2024',
-        description: 'Security services',
+        amount: 6000.00,
+        amount_display: '৳6,000.00',
+        due_date: '2025-12-07',
+        status: 'paid',
+        provider: 'WASA',
+        description: 'Water Supply Bill',
         building_id: 1
       },
       {
         id: 5,
-        type: 'internet',
-        building_name: 'Main Building',
-        amount: 12000,
-        due_date: '2024-02-28',
-        status: 'pending',
-        provider: 'Broadband Inc',
-        account_number: 'BB-567890',
-        month: 'February 2024',
-        description: 'Monthly internet service',
-        building_id: 1
+        type: 'Maintenance Fee',
+        building_name: 'All Buildings',
+        amount: 10000.00,
+        amount_display: '৳10,000.00',
+        due_date: '2025-12-10',
+        status: 'paid',
+        provider: 'Building Management',
+        description: 'Monthly Maintenance Fee',
+        building_id: 3
       },
       {
         id: 6,
-        type: 'gas',
-        building_name: 'Main Building',
-        amount: 9000,
-        due_date: '2024-02-12',
+        type: 'Security',
+        building_name: 'All Buildings',
+        amount: 8000.00,
+        amount_display: '৳8,000.00',
+        due_date: '2025-12-15',
         status: 'paid',
-        provider: 'Gas Company',
-        account_number: 'GC-234567',
-        month: 'February 2024',
-        paid_date: '2024-02-10',
-        paid_amount: 9000,
-        consumption: '45 units',
-        description: 'Monthly gas bill',
+        provider: 'SecureGuard Ltd.',
+        description: 'Security Service Bill',
+        building_id: 3
+      },
+      {
+        id: 7,
+        type: 'Internet',
+        building_name: 'Main Building',
+        amount: 3000.00,
+        amount_display: '৳3,000.00',
+        due_date: '2026-01-05',
+        status: 'upcoming',
+        provider: 'Bdcom Online',
+        description: 'Monthly Internet Bill',
         building_id: 1
+      },
+      {
+        id: 8,
+        type: 'Garbage',
+        building_name: 'All Buildings',
+        amount: 2500.00,
+        amount_display: '৳2,500.00',
+        due_date: '2026-01-10',
+        status: 'upcoming',
+        provider: 'City Corporation',
+        description: 'Garbage Collection Bill',
+        building_id: 3
       }
     ];
     
     setUtilityBills(mockBills);
     
     const total = mockBills.length;
+    const upcoming = mockBills.filter(b => b.status === 'upcoming').length;
     const pending = mockBills.filter(b => b.status === 'pending').length;
     const paid = mockBills.filter(b => b.status === 'paid').length;
     const overdue = mockBills.filter(b => b.status === 'overdue').length;
     const totalAmount = mockBills.reduce((sum, bill) => sum + bill.amount, 0);
     
-    setStats({ total, pending, paid, overdue, totalAmount });
+    setStats({ total, upcoming, pending, paid, overdue, totalAmount });
+  };
+
+  const getDisplayAmount = (bill: UtilityBill) => {
+    if (bill.amount_display && bill.amount_display.includes('৳')) {
+      return bill.amount_display;
+    }
+    if (bill.amount_display) {
+      return `৳${bill.amount_display.replace(/[^0-9.,]/g, '')}`;
+    }
+    return formatCurrency(bill.amount);
   };
 
   const handleMarkAsPaid = (bill: UtilityBill) => {
@@ -305,8 +342,8 @@ const ManagerBills = () => {
       toast.success('Utility bill created successfully!');
       setShowCreateModal(false);
       setNewBill({
-        type: 'electricity',
-        building_id: '',
+        type: 'Building Maintenance',
+        building_id: '1',
         amount: '',
         due_date: '',
         provider: '',
@@ -323,45 +360,64 @@ const ManagerBills = () => {
   };
 
   const getBillTypeIcon = (type: string) => {
-    switch (type) {
-      case 'electricity': return <FaBolt className="text-yellow-500" />;
-      case 'water': return <FaTint className="text-blue-500" />;
-      case 'gas': return <FaFire className="text-orange-500" />;
-      case 'security': return <FaShieldAlt className="text-gray-500" />;
-      case 'cleaning': return <FaBroom className="text-green-500" />;
-      case 'internet': return <FaWifi className="text-purple-500" />;
-      default: return <FaFileInvoice className="text-gray-500" />;
+    switch (type.toLowerCase()) {
+      case 'building maintenance':
+      case 'maintenance fee':
+        return <FaTools className="text-blue-500" />;
+      case 'gas':
+        return <FaFire className="text-orange-500" />;
+      case 'electricity':
+        return <FaBolt className="text-yellow-500" />;
+      case 'water':
+        return <FaTint className="text-blue-400" />;
+      case 'security':
+        return <FaShieldAlt className="text-gray-500" />;
+      case 'internet':
+        return <FaWifi className="text-purple-500" />;
+      case 'garbage':
+      case 'cleaning':
+        return <FaTrashAlt className="text-green-500" />;
+      default:
+        return <FaFileInvoice className="text-gray-500" />;
     }
   };
 
   const getBillTypeColor = (type: string) => {
-    switch (type) {
-      case 'electricity': return 'bg-yellow-50 border-yellow-200 text-yellow-700';
-      case 'water': return 'bg-blue-50 border-blue-200 text-blue-700';
-      case 'gas': return 'bg-orange-50 border-orange-200 text-orange-700';
-      case 'security': return 'bg-gray-50 border-gray-200 text-gray-700';
-      case 'cleaning': return 'bg-green-50 border-green-200 text-green-700';
-      case 'internet': return 'bg-purple-50 border-purple-200 text-purple-700';
-      default: return 'bg-gray-50 border-gray-200 text-gray-700';
+    switch (type.toLowerCase()) {
+      case 'building maintenance':
+      case 'maintenance fee':
+        return 'bg-blue-50 border-blue-200 text-blue-700';
+      case 'gas':
+        return 'bg-orange-50 border-orange-200 text-orange-700';
+      case 'electricity':
+        return 'bg-yellow-50 border-yellow-200 text-yellow-700';
+      case 'water':
+        return 'bg-blue-50 border-blue-200 text-blue-700';
+      case 'security':
+        return 'bg-gray-50 border-gray-200 text-gray-700';
+      case 'internet':
+        return 'bg-purple-50 border-purple-200 text-purple-700';
+      case 'garbage':
+      case 'cleaning':
+        return 'bg-green-50 border-green-200 text-green-700';
+      default:
+        return 'bg-gray-50 border-gray-200 text-gray-700';
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'paid': return 'bg-emerald-100 text-emerald-700 border border-emerald-200';
-      case 'overdue': return 'bg-rose-100 text-rose-700 border border-rose-200';
-      case 'pending': return 'bg-amber-100 text-amber-700 border border-amber-200';
-      default: return 'bg-slate-100 text-slate-700 border border-slate-200';
+      case 'paid':
+        return 'bg-emerald-100 text-emerald-700 border border-emerald-200';
+      case 'overdue':
+        return 'bg-rose-100 text-rose-700 border border-rose-200';
+      case 'pending':
+        return 'bg-amber-100 text-amber-700 border border-amber-200';
+      case 'upcoming':
+        return 'bg-blue-100 text-blue-700 border border-blue-200';
+      default:
+        return 'bg-slate-100 text-slate-700 border border-slate-200';
     }
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
-    }).format(amount);
   };
 
   const filteredBills = utilityBills.filter(bill => {
@@ -411,7 +467,7 @@ const ManagerBills = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
         <div className="bg-white p-4 rounded-xl border">
           <div className="flex items-center justify-between">
             <div>
@@ -420,6 +476,16 @@ const ManagerBills = () => {
               <p className="text-sm text-slate-600 mt-1">{formatCurrency(stats.totalAmount)}</p>
             </div>
             <FaFileInvoice className="text-2xl text-violet-500" />
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-600">Upcoming</p>
+              <p className="text-2xl font-bold mt-2 text-blue-600">{stats.upcoming}</p>
+              <p className="text-sm text-slate-600 mt-1">Future bills</p>
+            </div>
+            <FaCalendar className="text-2xl text-blue-500" />
           </div>
         </div>
         <div className="bg-white p-4 rounded-xl border">
@@ -456,12 +522,12 @@ const ManagerBills = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-600">Collection Rate</p>
-              <p className="text-2xl font-bold mt-2 text-blue-600">
-                {stats.total > 0 ? Math.round((stats.paid / stats.total) * 100) : 0}%
+              <p className="text-2xl font-bold mt-2 text-indigo-600">
+                {stats.total > 0 ? Math.round(((stats.paid + stats.upcoming) / stats.total) * 100) : 0}%
               </p>
               <p className="text-sm text-slate-600 mt-1">Success rate</p>
             </div>
-            <FaMoneyBillWave className="text-2xl text-blue-500" />
+            <FaMoneyBillWave className="text-2xl text-indigo-500" />
           </div>
         </div>
       </div>
@@ -488,6 +554,7 @@ const ManagerBills = () => {
               className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
             >
               <option value="all">All Status</option>
+              <option value="upcoming">Upcoming</option>
               <option value="pending">Pending</option>
               <option value="paid">Paid</option>
               <option value="overdue">Overdue</option>
@@ -556,15 +623,15 @@ const ManagerBills = () => {
                           {getBillTypeIcon(bill.type)}
                         </div>
                         <div>
-                          <p className="font-medium text-slate-900 capitalize">{bill.type}</p>
-                          <p className="text-sm text-slate-600">{bill.month}</p>
+                          <p className="font-medium text-slate-900">{bill.type}</p>
+                          {bill.description && (
+                            <p className="text-sm text-slate-600">{bill.description}</p>
+                          )}
+                          {bill.month && (
+                            <p className="text-xs text-slate-500 mt-1">{bill.month}</p>
+                          )}
                           {bill.provider && (
                             <p className="text-xs text-slate-500 mt-1">{bill.provider}</p>
-                          )}
-                          {bill.description && (
-                            <p className="text-xs text-slate-500 mt-1 truncate max-w-[200px]">
-                              {bill.description}
-                            </p>
                           )}
                           {bill.consumption && (
                             <p className="text-xs text-slate-500 mt-1">Usage: {bill.consumption}</p>
@@ -587,7 +654,9 @@ const ManagerBills = () => {
                       <div className="flex items-center gap-2">
                         <FaMoneyBillWave className="text-slate-400" />
                         <div>
-                          <p className="font-bold text-lg text-slate-900">{formatCurrency(bill.amount)}</p>
+                          <p className="font-bold text-lg text-slate-900">
+                            {getDisplayAmount(bill)}
+                          </p>
                           {bill.paid_amount && (
                             <p className="text-xs text-emerald-600">
                               Paid: {formatCurrency(bill.paid_amount)}
@@ -625,7 +694,7 @@ const ManagerBills = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
-                        {bill.status !== 'paid' && (
+                        {bill.status !== 'paid' && bill.status !== 'upcoming' && (
                           <button
                             onClick={() => handleMarkAsPaid(bill)}
                             className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm flex items-center gap-1"
@@ -646,7 +715,6 @@ const ManagerBills = () => {
                         </button>
                         <button 
                           onClick={() => {
-                            // Edit functionality
                             toast('Edit functionality coming soon');
                           }}
                           className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
@@ -654,13 +722,15 @@ const ManagerBills = () => {
                         >
                           <FaEdit />
                         </button>
-                        <button 
-                          onClick={() => handleDeleteBill(bill.id)}
-                          className="p-2 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
-                          title="Delete"
-                        >
-                          <FaTrash />
-                        </button>
+                        {bill.status === 'pending' && (
+                          <button 
+                            onClick={() => handleDeleteBill(bill.id)}
+                            className="p-2 text-slate-600 hover:text-rose-600 hover:bg-rose-50 rounded-lg"
+                            title="Delete"
+                          >
+                            <FaTrash />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -687,7 +757,7 @@ const ManagerBills = () => {
                 <div key={type} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
                   <div className="flex items-center gap-2">
                     {getBillTypeIcon(type)}
-                    <span className="font-medium capitalize">{type}</span>
+                    <span className="font-medium">{type}</span>
                   </div>
                   <div className="text-right">
                     <p className="font-medium text-slate-900">{formatCurrency(totalAmount)}</p>
@@ -709,7 +779,17 @@ const ManagerBills = () => {
               <span className="font-bold text-lg text-amber-600">
                 {formatCurrency(
                   utilityBills
-                    .filter(b => b.status !== 'paid')
+                    .filter(b => b.status === 'pending' || b.status === 'overdue')
+                    .reduce((sum, b) => sum + b.amount, 0)
+                )}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-600">Upcoming Amount</span>
+              <span className="font-bold text-lg text-blue-600">
+                {formatCurrency(
+                  utilityBills
+                    .filter(b => b.status === 'upcoming')
                     .reduce((sum, b) => sum + b.amount, 0)
                 )}
               </span>
@@ -734,14 +814,6 @@ const ManagerBills = () => {
                 )}
               </span>
             </div>
-            <div className="mt-4 pt-4 border-t">
-              <div className="flex justify-between items-center">
-                <span className="text-slate-600">Collection Rate</span>
-                <span className="font-bold text-lg text-violet-600">
-                  {stats.total > 0 ? Math.round((stats.paid / stats.total) * 100) : 0}%
-                </span>
-              </div>
-            </div>
           </div>
         </div>
         
@@ -764,7 +836,6 @@ const ManagerBills = () => {
             </button>
             <button 
               onClick={() => {
-                // Export functionality
                 toast('Export functionality coming soon');
               }}
               className="w-full text-left p-3 bg-slate-50 hover:bg-slate-100 rounded-lg flex items-center gap-2 transition-colors"
@@ -774,7 +845,6 @@ const ManagerBills = () => {
             </button>
             <button 
               onClick={() => {
-                // Send reminders
                 toast('Reminder functionality coming soon');
               }}
               className="w-full text-left p-3 bg-slate-50 hover:bg-slate-100 rounded-lg flex items-center gap-2 transition-colors"
@@ -793,7 +863,7 @@ const ManagerBills = () => {
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
-                  <h3 className="text-xl font-bold text-slate-900 capitalize">{selectedBill.type} Bill Details</h3>
+                  <h3 className="text-xl font-bold text-slate-900">{selectedBill.type} Bill Details</h3>
                   <div className="flex items-center gap-3 mt-2">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedBill.status)}`}>
                       {selectedBill.status.toUpperCase()}
@@ -818,7 +888,9 @@ const ManagerBills = () => {
                     <div className="space-y-4">
                       <div>
                         <p className="text-sm text-slate-600">Amount</p>
-                        <p className="font-bold text-2xl text-slate-900 mt-1">{formatCurrency(selectedBill.amount)}</p>
+                        <p className="font-bold text-2xl text-slate-900 mt-1">
+                          {getDisplayAmount(selectedBill)}
+                        </p>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -891,7 +963,7 @@ const ManagerBills = () => {
                   </div>
                 </div>
                 
-                {selectedBill.status !== 'paid' && (
+                {selectedBill.status !== 'paid' && selectedBill.status !== 'upcoming' && (
                   <div className="flex justify-end gap-3 pt-6 border-t">
                     <button
                       onClick={() => {
@@ -935,19 +1007,20 @@ const ManagerBills = () => {
                     onChange={(e) => setNewBill({...newBill, type: e.target.value})}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                   >
-                    <option value="electricity">Electricity</option>
-                    <option value="water">Water</option>
-                    <option value="gas">Gas</option>
-                    <option value="cleaning">Cleaning</option>
-                    <option value="security">Security</option>
-                    <option value="internet">Internet</option>
-                    <option value="other">Other</option>
+                    <option value="Building Maintenance">Building Maintenance</option>
+                    <option value="Gas">Gas</option>
+                    <option value="Electricity">Electricity</option>
+                    <option value="Water">Water</option>
+                    <option value="Maintenance Fee">Maintenance Fee</option>
+                    <option value="Security">Security</option>
+                    <option value="Internet">Internet</option>
+                    <option value="Garbage">Garbage Collection</option>
                   </select>
                 </div>
                 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Amount (₹) *
+                    Amount (৳) *
                   </label>
                   <input
                     type="number"
@@ -972,15 +1045,17 @@ const ManagerBills = () => {
                 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Billing Month
+                    Building
                   </label>
-                  <input
-                    type="text"
-                    value={newBill.month}
-                    onChange={(e) => setNewBill({...newBill, month: e.target.value})}
-                    placeholder="e.g., February 2024"
+                  <select
+                    value={newBill.building_id}
+                    onChange={(e) => setNewBill({...newBill, building_id: e.target.value})}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  />
+                  >
+                    <option value="1">Main Building</option>
+                    <option value="2">Green Valley Apartments</option>
+                    <option value="3">All Buildings</option>
+                  </select>
                 </div>
                 
                 <div>
@@ -991,7 +1066,7 @@ const ManagerBills = () => {
                     type="text"
                     value={newBill.provider}
                     onChange={(e) => setNewBill({...newBill, provider: e.target.value})}
-                    placeholder="e.g., National Grid"
+                    placeholder="e.g., Titas Gas, WASA, etc."
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                   />
                 </div>
@@ -1011,6 +1086,32 @@ const ManagerBills = () => {
                 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Description *
+                  </label>
+                  <input
+                    type="text"
+                    value={newBill.description}
+                    onChange={(e) => setNewBill({...newBill, description: e.target.value})}
+                    placeholder="e.g., February 2025 Maintenance Bill"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Billing Month
+                  </label>
+                  <input
+                    type="text"
+                    value={newBill.month}
+                    onChange={(e) => setNewBill({...newBill, month: e.target.value})}
+                    placeholder="e.g., February 2025"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
                     Consumption/Usage
                   </label>
                   <input
@@ -1018,19 +1119,6 @@ const ManagerBills = () => {
                     value={newBill.consumption}
                     onChange={(e) => setNewBill({...newBill, consumption: e.target.value})}
                     placeholder="e.g., 1200 kWh"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Description
-                  </label>
-                  <textarea
-                    value={newBill.description}
-                    onChange={(e) => setNewBill({...newBill, description: e.target.value})}
-                    placeholder="Brief description of the bill..."
-                    rows={2}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
                   />
                 </div>
@@ -1063,7 +1151,7 @@ const ManagerBills = () => {
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-xl font-bold text-slate-900">Mark Bill as Paid</h3>
-                  <p className="text-slate-600 mt-1 capitalize">{selectedBill.type} - {selectedBill.provider}</p>
+                  <p className="text-slate-600 mt-1">{selectedBill.type} - {selectedBill.provider}</p>
                 </div>
                 <button
                   onClick={() => setShowPayModal(false)}
@@ -1079,7 +1167,7 @@ const ManagerBills = () => {
                     <div>
                       <p className="text-sm text-slate-600">Bill Amount</p>
                       <p className="text-2xl font-bold text-slate-900 mt-1">
-                        {formatCurrency(selectedBill.amount)}
+                        {getDisplayAmount(selectedBill)}
                       </p>
                     </div>
                     <div className="text-right">
@@ -1097,7 +1185,7 @@ const ManagerBills = () => {
                 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Amount Paid (₹) *
+                    Amount Paid (৳) *
                   </label>
                   <input
                     type="number"
