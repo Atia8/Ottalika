@@ -1,4 +1,5 @@
 -- DROP ALL TABLES AND TYPES FIRST
+DROP TABLE IF EXISTS messages CASCADE;
 DROP TABLE IF EXISTS payment_audit_log CASCADE;
 DROP TABLE IF EXISTS renters_audit_log CASCADE;
 DROP TABLE IF EXISTS maintenance_audit_log CASCADE;
@@ -16,6 +17,8 @@ DROP TABLE IF EXISTS renters CASCADE;
 DROP TABLE IF EXISTS managers CASCADE;
 DROP TABLE IF EXISTS owners CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS utility_bills CASCADE;
+DROP TABLE IF EXISTS owner_expenses CASCADE;
 
 DROP TYPE IF EXISTS payment_status CASCADE;
 DROP TYPE IF EXISTS maintenance_priority CASCADE;
@@ -27,7 +30,7 @@ DROP TYPE IF EXISTS manager_task_priority CASCADE;
 DROP TYPE IF EXISTS manager_task_status CASCADE;
 DROP TYPE IF EXISTS bill_status CASCADE;
 
--- ========= =========== CREATE TYPES ====================
+-- ========= CREATE TYPES ====================
 
 CREATE TYPE user_role AS ENUM ('owner', 'manager', 'renter');
 CREATE TYPE renter_status AS ENUM ('active', 'inactive', 'pending', 'terminated');
@@ -37,7 +40,7 @@ CREATE TYPE maintenance_priority AS ENUM ('urgent', 'high', 'medium', 'low');
 CREATE TYPE maintenance_status AS ENUM ('pending', 'in_progress', 'completed', 'resolved', 'cancelled');
 CREATE TYPE manager_task_priority AS ENUM ('urgent', 'high', 'medium', 'low');
 CREATE TYPE manager_task_status AS ENUM ('pending', 'in_progress', 'completed', 'overdue');
-CREATE TYPE bill_status AS ENUM ('upcoming', 'paid', 'pending', 'overdue'); -- Added from Atia's schema
+CREATE TYPE bill_status AS ENUM ('upcoming', 'paid', 'pending', 'overdue');
 
 -- ==================== CREATE ALL TABLES ====================
 
@@ -54,7 +57,7 @@ CREATE TABLE users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. Owners table (Enhanced with address and more details)
+-- 2. Owners table
 CREATE TABLE owners (
     id SERIAL PRIMARY KEY,
     user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
@@ -80,7 +83,7 @@ CREATE TABLE managers (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Renters table (Keeping both password_hash and other details)
+-- 4. Renters table
 CREATE TABLE renters (
     id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -95,7 +98,7 @@ CREATE TABLE renters (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 5. Buildings table (Added owner_id for ownership tracking)
+-- 5. Buildings table
 CREATE TABLE buildings (
     id SERIAL PRIMARY KEY,
     owner_id INTEGER REFERENCES owners(id) ON DELETE SET NULL,
@@ -107,7 +110,7 @@ CREATE TABLE buildings (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 6. Apartments table (Enhanced with your structure)
+-- 6. Apartments table
 CREATE TABLE apartments (
     id SERIAL PRIMARY KEY,
     building_id INTEGER NOT NULL REFERENCES buildings(id) ON DELETE CASCADE,
@@ -127,7 +130,7 @@ CREATE TABLE apartments (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 7. Payments table (Your enhanced version)
+-- 7. Payments table
 CREATE TABLE payments (
     id SERIAL PRIMARY KEY,
     apartment_id INTEGER NOT NULL REFERENCES apartments(id) ON DELETE CASCADE,
@@ -144,7 +147,7 @@ CREATE TABLE payments (
     CHECK (amount > 0)
 );
 
--- 8. Payment confirmations table (Your enhanced version)
+-- 8. Payment confirmations table
 CREATE TABLE payment_confirmations (
     id SERIAL PRIMARY KEY,
     payment_id INTEGER UNIQUE NOT NULL REFERENCES payments(id) ON DELETE CASCADE,
@@ -155,7 +158,7 @@ CREATE TABLE payment_confirmations (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 9. Maintenance requests table WITH DUAL-RESOLUTION COLUMNS (Your enhanced version)
+-- 9. Maintenance requests table
 CREATE TABLE maintenance_requests (
     id SERIAL PRIMARY KEY,
     apartment_id INTEGER NOT NULL REFERENCES apartments(id) ON DELETE CASCADE,
@@ -180,7 +183,7 @@ CREATE TABLE maintenance_requests (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 10. Manager tasks table (Your enhanced version)
+-- 10. Manager tasks table
 CREATE TABLE manager_tasks (
     id SERIAL PRIMARY KEY,
     title VARCHAR(200) NOT NULL,
@@ -196,7 +199,7 @@ CREATE TABLE manager_tasks (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 11. Complaints table (Merged structure - keeping your fields but adding Atia's workflow_status)
+-- 11. Complaints table
 CREATE TABLE complaints (
     id SERIAL PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
@@ -210,7 +213,7 @@ CREATE TABLE complaints (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 12. Complaint resolution table (Your enhanced version)
+-- 12. Complaint resolution table
 CREATE TABLE complaint_resolution (
     complaint_id INTEGER PRIMARY KEY REFERENCES complaints(id),
     manager_confirmed BOOLEAN DEFAULT FALSE,
@@ -219,24 +222,26 @@ CREATE TABLE complaint_resolution (
     resolved_at TIMESTAMP
 );
 
--- 13. Bills table (Your original enhanced version)
+-- 13. Bills table (Manager-created bills)
 CREATE TABLE bills (
     id SERIAL PRIMARY KEY,
-    manager_id INTEGER,
+    manager_id INTEGER REFERENCES managers(id) ON DELETE SET NULL,
     title VARCHAR(100) NOT NULL,
-    amount NUMERIC(10,2) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
     due_date DATE NOT NULL,
     paid_date DATE,
     status bill_status DEFAULT 'upcoming',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 14. Utility bills table for separate utility bills (Your enhanced version)
--- UPDATED: Using the new types you want
+-- 14. Utility bills table (WITH OWNER_ID for owner visibility)
 CREATE TABLE utility_bills (
     id SERIAL PRIMARY KEY,
     type VARCHAR(50) NOT NULL CHECK (type IN ('Building Maintenance', 'Maintenance Fee', 'Gas', 'Electricity', 'Water', 'Security', 'Internet', 'Garbage')),
     building_id INTEGER REFERENCES buildings(id) ON DELETE CASCADE,
+    owner_id INTEGER REFERENCES owners(id) ON DELETE CASCADE,
     amount DECIMAL(10,2) NOT NULL,
     due_date DATE NOT NULL,
     status bill_status DEFAULT 'upcoming',
@@ -251,7 +256,7 @@ CREATE TABLE utility_bills (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 15. Owner-specific expense tracking (Added from Atia's needs)
+-- 15. Owner expenses table
 CREATE TABLE owner_expenses (
     id SERIAL PRIMARY KEY,
     owner_id INTEGER NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
@@ -268,7 +273,6 @@ CREATE TABLE owner_expenses (
 
 -- ==================== AUDIT LOG TABLES ====================
 
--- 16. Payment audit log
 CREATE TABLE payment_audit_log (
     id SERIAL PRIMARY KEY,
     payment_id INTEGER NOT NULL,
@@ -279,7 +283,6 @@ CREATE TABLE payment_audit_log (
     changed_by INTEGER
 );
 
--- 17. Renters audit log
 CREATE TABLE renters_audit_log (
     id SERIAL PRIMARY KEY,
     renter_id INTEGER NOT NULL,
@@ -290,7 +293,6 @@ CREATE TABLE renters_audit_log (
     changed_by INTEGER
 );
 
--- 18. Maintenance audit log
 CREATE TABLE maintenance_audit_log (
     id SERIAL PRIMARY KEY,
     request_id INTEGER NOT NULL,
@@ -301,94 +303,79 @@ CREATE TABLE maintenance_audit_log (
     changed_by INTEGER
 );
 
+-- Messages table for communication
+CREATE TABLE messages (
+    id SERIAL PRIMARY KEY,
+    sender_id VARCHAR(50) NOT NULL,
+    receiver_id VARCHAR(50) NOT NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ==================== CREATE INDEXES ====================
 
--- Users indexes
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
-
--- Owners indexes
 CREATE INDEX idx_owners_user ON owners(user_id);
-
--- Managers indexes
 CREATE INDEX idx_managers_user ON managers(user_id);
 CREATE INDEX idx_managers_owner ON managers(assigned_owner_id);
-
--- Renters indexes
 CREATE INDEX idx_renters_email ON renters(email);
 CREATE INDEX idx_renters_status ON renters(status);
 CREATE INDEX idx_renters_user ON renters(user_id);
-
--- Buildings indexes (Added for owner)
 CREATE INDEX idx_buildings_owner ON buildings(owner_id);
-
--- Apartments indexes
 CREATE INDEX idx_apartments_building ON apartments(building_id);
 CREATE INDEX idx_apartments_renter ON apartments(current_renter_id);
 CREATE INDEX idx_apartments_status ON apartments(status);
 CREATE INDEX idx_apartments_number ON apartments(apartment_number);
-
--- Payments indexes
 CREATE INDEX idx_payments_apartment ON payments(apartment_id);
 CREATE INDEX idx_payments_renter ON payments(renter_id);
 CREATE INDEX idx_payments_month ON payments(month);
 CREATE INDEX idx_payments_status ON payments(status);
 CREATE INDEX idx_payments_due_date ON payments(due_date);
-
--- Payment confirmations indexes
 CREATE INDEX idx_payment_confirmations_payment ON payment_confirmations(payment_id);
 CREATE INDEX idx_payment_confirmations_status ON payment_confirmations(status);
-
--- Maintenance requests indexes
 CREATE INDEX idx_maintenance_requests_apartment ON maintenance_requests(apartment_id);
 CREATE INDEX idx_maintenance_requests_renter ON maintenance_requests(renter_id);
 CREATE INDEX idx_maintenance_requests_status ON maintenance_requests(status);
 CREATE INDEX idx_maintenance_requests_priority ON maintenance_requests(priority);
-CREATE INDEX idx_maintenance_requests_category ON maintenance_requests(category);
 CREATE INDEX idx_maintenance_manager_resolved ON maintenance_requests(manager_marked_resolved);
 CREATE INDEX idx_maintenance_renter_resolved ON maintenance_requests(renter_marked_resolved);
-
--- Manager tasks indexes
 CREATE INDEX idx_manager_tasks_status ON manager_tasks(status);
 CREATE INDEX idx_manager_tasks_priority ON manager_tasks(priority);
 CREATE INDEX idx_manager_tasks_due_date ON manager_tasks(due_date);
-
--- Complaints indexes
 CREATE INDEX idx_complaints_apartment ON complaints(apartment_id);
 CREATE INDEX idx_complaints_renter ON complaints(renter_id);
 CREATE INDEX idx_complaints_status ON complaints(workflow_status);
-
--- Bills indexes
 CREATE INDEX idx_bills_status ON bills(status);
 CREATE INDEX idx_bills_due_date ON bills(due_date);
-
--- Utility bills indexes
 CREATE INDEX idx_utility_bills_type ON utility_bills(type);
 CREATE INDEX idx_utility_bills_status ON utility_bills(status);
 CREATE INDEX idx_utility_bills_due_date ON utility_bills(due_date);
 CREATE INDEX idx_utility_bills_building ON utility_bills(building_id);
-
--- Owner expenses indexes
+CREATE INDEX idx_utility_bills_owner ON utility_bills(owner_id);
 CREATE INDEX idx_owner_expenses_owner ON owner_expenses(owner_id);
 CREATE INDEX idx_owner_expenses_category ON owner_expenses(category);
 CREATE INDEX idx_owner_expenses_date ON owner_expenses(expense_date);
-
--- Audit log indexes
 CREATE INDEX idx_payment_audit_payment ON payment_audit_log(payment_id);
 CREATE INDEX idx_payment_audit_date ON payment_audit_log(changed_at);
 CREATE INDEX idx_renters_audit_renter ON renters_audit_log(renter_id);
 CREATE INDEX idx_maintenance_audit_request ON maintenance_audit_log(request_id);
+CREATE INDEX idx_messages_sender ON messages(sender_id);
+CREATE INDEX idx_messages_receiver ON messages(receiver_id);
+CREATE INDEX idx_messages_conversation ON messages(sender_id, receiver_id);
+CREATE INDEX idx_messages_created_at ON messages(created_at DESC);
 
--- Additional composite indexes for performance
+-- Composite indexes
 CREATE INDEX idx_maintenance_requests_manager_renter_resolved ON maintenance_requests(manager_marked_resolved, renter_marked_resolved);
 CREATE INDEX idx_maintenance_requests_status_priority ON maintenance_requests(status, priority);
 CREATE INDEX idx_payments_renter_status ON payments(renter_id, status);
 CREATE INDEX idx_payments_month_status ON payments(month, status);
 CREATE INDEX idx_renters_status_user ON renters(status, user_id);
 
--- ==================== INSERT DEMO USERS (WITH HASHED PASSWORDS) ====================
+-- ==================== INSERT DEMO USERS ====================
 
--- Insert demo users (password for all: demo123)
 INSERT INTO users (username, password_hash, role, email, phone, "isActive") VALUES
 ('manager', '$2a$10$JTKgZtabSdN8WLhKOhvwveTntvCbsTVXz1xu7/E/ntpR.ZbZE1/Hi', 'manager', 'manager@ottalika.com', '01710000001', true),
 ('owner', '$2a$10$JTKgZtabSdN8WLhKOhvwveTntvCbsTVXz1xu7/E/ntpR.ZbZE1/Hi', 'owner', 'owner@ottalika.com', '01710000002', true),
@@ -398,17 +385,17 @@ INSERT INTO users (username, password_hash, role, email, phone, "isActive") VALU
 ('owner2', '$2a$10$JTKgZtabSdN8WLhKOhvwveTntvCbsTVXz1xu7/E/ntpR.ZbZE1/Hi', 'owner', 'owner2@ottalika.com', '01710000004', true),
 ('manager2', '$2a$10$JTKgZtabSdN8WLhKOhvwveTntvCbsTVXz1xu7/E/ntpR.ZbZE1/Hi', 'manager', 'manager2@ottalika.com', '01710000005', true);
 
--- Insert demo owners (Added second owner)
+-- Insert owners
 INSERT INTO owners (user_id, name, address, tax_id, bank_account, emergency_contact) VALUES
 (2, 'Demo Owner', '123 Owner Street, Dhaka', 'TAX-001', 'BANK-001', '01700000001'),
 (6, 'Second Owner', '456 Owner Avenue, Dhaka', 'TAX-002', 'BANK-002', '01700000002');
 
--- Insert demo managers (Assigned to owners)
+-- Insert managers
 INSERT INTO managers (user_id, name, designation, assigned_owner_id) VALUES
 (1, 'Demo Manager', 'Property Manager', 1),
 (7, 'Second Manager', 'Assistant Manager', 2);
 
--- Insert renters (7 renters including demo renter)
+-- Insert renters
 INSERT INTO renters (name, email, phone, nid_number, emergency_contact, occupation, status, user_id) VALUES
 ('John Doe', 'john.doe@example.com', '01712345678', '1234567890123', '01711111111', 'Software Engineer', 'active', 4),
 ('Sarah Smith', 'sarah.smith@example.com', '01712345679', '2345678901234', '01722222222', 'Doctor', 'active', 5),
@@ -418,7 +405,7 @@ INSERT INTO renters (name, email, phone, nid_number, emergency_contact, occupati
 ('Demo Renter', 'renter@ottalika.com', '01710000003', '9876543210987', '01700000000', 'Software Developer', 'active', 3),
 ('Robert Davis', 'robert.davis@example.com', '01712345683', '6789012345678', '01766666666', 'Architect', 'active', NULL);
 
--- Insert buildings (Assigned to owners)
+-- Insert buildings
 INSERT INTO buildings (owner_id, name, address, total_floors, year_built, amenities) VALUES
 (1, 'Green Valley Apartments', '123 Green Valley Rd, Dhaka', 3, 2020, ARRAY['gym', 'pool', 'parking']),
 (1, 'Sky Tower', '456 Business Rd, City', 5, 2022, ARRAY['gym', 'pool', 'concierge', 'security']),
@@ -426,7 +413,6 @@ INSERT INTO buildings (owner_id, name, address, total_floors, year_built, amenit
 
 -- Insert apartments
 INSERT INTO apartments (building_id, apartment_number, floor, bedrooms, bathrooms, rent_amount, status, current_renter_id, lease_start, lease_end) VALUES
--- Building 1 - Green Valley Apartments (Owner 1)
 (1, '101', '1', 2, 1, 12000.00, 'occupied', 1, '2024-01-01', '2024-12-31'),
 (1, '102', '1', 1, 1, 8000.00, 'occupied', 2, '2024-02-01', '2024-11-30'),
 (1, '103', '1', 1, 1, 8500.00, 'occupied', 6, '2024-01-01', '2024-12-31'),
@@ -434,53 +420,38 @@ INSERT INTO apartments (building_id, apartment_number, floor, bedrooms, bathroom
 (1, '202', '2', 1, 1, 9000.00, 'vacant', NULL, NULL, NULL),
 (1, '301', '3', 3, 2, 18000.00, 'maintenance', NULL, NULL, NULL),
 (1, '302', '3', 2, 1, 13000.00, 'occupied', 4, '2024-04-01', '2024-09-30'),
--- Building 2 - Sky Tower (Owner 1)
 (2, '501', '5', 3, 2, 25000.00, 'occupied', 5, '2024-05-01', '2024-08-31'),
 (2, '502', '5', 2, 2, 20000.00, 'vacant', NULL, NULL, NULL),
--- Building 3 - Lakeview Residency (Owner 2)
 (3, '101', '1', 2, 1, 11000.00, 'occupied', 7, '2024-06-01', '2024-11-30'),
 (3, '102', '1', 1, 1, 7500.00, 'vacant', NULL, NULL, NULL),
 (3, '201', '2', 2, 2, 14000.00, 'occupied', NULL, NULL, NULL);
 
--- Insert payments (with varied dates for analytics)
+-- Insert payments
 INSERT INTO payments (apartment_id, renter_id, amount, month, due_date, status, payment_method, transaction_id, paid_at) VALUES
--- January 2025
 (1, 1, 12000.00, '2025-01-01', '2025-01-05', 'paid', 'bkash', 'TRX001', '2025-01-04 14:30:00'),
 (2, 2, 8000.00, '2025-01-01', '2025-01-05', 'paid', 'bank_transfer', 'TRX002', '2025-01-03 10:15:00'),
 (4, 3, 15000.00, '2025-01-01', '2025-01-05', 'paid', 'cash', NULL, '2025-01-05 16:45:00'),
 (7, 4, 13000.00, '2025-01-01', '2025-01-05', 'overdue', NULL, NULL, NULL),
 (8, 5, 25000.00, '2025-01-01', '2025-01-05', 'pending', NULL, NULL, NULL),
 (10, 7, 11000.00, '2025-01-01', '2025-01-05', 'paid', 'nagad', 'TRX012', '2025-01-04 12:00:00'),
-
--- December 2024
 (1, 1, 12000.00, '2024-12-01', '2024-12-05', 'paid', 'nagad', 'TRX003', '2024-12-04 15:00:00'),
 (2, 2, 8000.00, '2024-12-01', '2024-12-05', 'paid', 'rocket', 'TRX004', '2024-12-03 11:00:00'),
 (4, 3, 15000.00, '2024-12-01', '2024-12-05', 'paid', 'bkash', 'TRX005', '2024-12-06 14:00:00'),
 (7, 4, 13000.00, '2024-12-01', '2024-12-05', 'paid', 'cash', NULL, '2024-12-04 10:30:00'),
 (8, 5, 25000.00, '2024-12-01', '2024-12-05', 'paid', 'bank_transfer', 'TRX006', '2024-12-02 09:45:00'),
-
--- November 2024
 (1, 1, 12000.00, '2024-11-01', '2024-11-05', 'paid', 'bkash', 'TRX007', '2024-11-08 16:30:00'),
 (2, 2, 8000.00, '2024-11-01', '2024-11-05', 'paid', 'nagad', 'TRX008', '2024-11-04 12:00:00'),
 (4, 3, 15000.00, '2024-11-01', '2024-11-05', 'paid', 'cash', NULL, '2024-11-05 11:30:00'),
 (7, 4, 13000.00, '2024-11-01', '2024-11-05', 'paid', 'rocket', 'TRX009', '2024-11-03 14:45:00'),
 (8, 5, 25000.00, '2024-11-01', '2024-11-05', 'paid', 'bank_transfer', 'TRX010', '2024-11-01 10:00:00'),
-
--- October 2024
 (1, 1, 12000.00, '2024-10-01', '2024-10-05', 'paid', 'cash', NULL, '2024-10-04 14:00:00'),
 (2, 2, 8000.00, '2024-10-01', '2024-10-05', 'paid', 'bkash', 'TRX011', '2024-10-07 09:30:00'),
 (4, 3, 15000.00, '2024-10-01', '2024-10-05', 'paid', 'nagad', 'TRX013', '2024-10-05 11:00:00'),
-
--- February 2025 (pending)
 (1, 1, 12000.00, '2025-02-01', '2025-02-05', 'pending', NULL, NULL, NULL),
 (2, 2, 8000.00, '2025-02-01', '2025-02-05', 'pending', NULL, NULL, NULL),
 (4, 3, 15000.00, '2025-02-01', '2025-02-05', 'pending', NULL, NULL, NULL),
 (3, 6, 8500.00, '2025-02-01', '2025-02-05', 'pending', NULL, NULL, NULL),
-(10, 7, 11000.00, '2025-02-01', '2025-02-05', 'pending', NULL, NULL, NULL);
-
--- Add 6 months of payment history for Demo Renter
-INSERT INTO payments (apartment_id, renter_id, amount, month, due_date, status, payment_method, transaction_id, paid_at) VALUES
--- Demo Renter payments
+(10, 7, 11000.00, '2025-02-01', '2025-02-05', 'pending', NULL, NULL, NULL),
 (3, 6, 8500.00, '2025-01-01', '2025-01-05', 'paid', 'bkash', 'TRX-D001', '2025-01-03 11:30:00'),
 (3, 6, 8500.00, '2024-12-01', '2024-12-05', 'paid', 'nagad', 'TRX-D002', '2024-12-02 14:45:00'),
 (3, 6, 8500.00, '2024-11-01', '2024-11-05', 'paid', 'bank_transfer', 'TRX-D003', '2024-11-08 09:20:00'),
@@ -499,7 +470,7 @@ INSERT INTO payment_confirmations (payment_id, manager_id, status, verified_at) 
 (23, 1, 'verified', '2024-12-02 15:00:00'),
 (26, 1, 'pending_review', NULL);
 
--- Insert maintenance requests WITH DUAL-RESOLUTION DATA
+-- Insert maintenance requests
 INSERT INTO maintenance_requests (apartment_id, renter_id, title, description, category, type, priority, status, assigned_to, estimated_cost, actual_cost, completed_at, notes, manager_marked_resolved, renter_marked_resolved, resolution, resolution_notes, assigned_at) VALUES
 (1, 1, 'AC Not Working', 'Air conditioner not cooling properly', 'electric', 'repair', 'urgent', 'completed', 'HVAC Team', 5000, 4500, '2024-12-15 14:30:00', 'AC needs regular maintenance', TRUE, TRUE, 'AC compressor replaced and refrigerant refilled', 'Renter confirmed issue is resolved', '2024-12-10 09:00:00'),
 (2, 2, 'Leaking Pipe', 'Kitchen pipe leaking under sink', 'plumbing', 'repair', 'high', 'in_progress', 'Plumbing Team', 3000, NULL, NULL, 'Water damage on cabinet floor', FALSE, FALSE, NULL, NULL, '2024-12-18 11:00:00'),
@@ -508,44 +479,39 @@ INSERT INTO maintenance_requests (apartment_id, renter_id, title, description, c
 (1, 1, 'Light Fixture', 'Bedroom light not working', 'electric', 'repair', 'medium', 'resolved', 'Electrician', 1500, 1200, '2024-11-28 16:45:00', 'LED bulb and fixture replacement', TRUE, TRUE, 'Replaced faulty wiring and installed new LED fixture', 'All working properly now', '2024-11-25 10:00:00'),
 (2, 2, 'Window Repair', 'Window glass cracked', 'general', 'repair', 'urgent', 'completed', 'Glass Company', 4000, 3800, '2024-12-05 11:30:00', 'Safety hazard - immediate fix needed', TRUE, TRUE, 'Replaced broken glass pane with tempered glass', 'Safety inspection passed', '2024-12-01 09:00:00'),
 (4, 3, 'Water Heater', 'Water heater not heating properly', 'plumbing', 'repair', 'high', 'in_progress', 'Plumbing Team', 6000, NULL, NULL, 'Heating element might be faulty', FALSE, FALSE, NULL, NULL, '2024-12-20 13:00:00'),
-(8, 5, 'Balcony Railings', 'Loose balcony railings need fixing', 'general', 'repair', 'urgent', 'pending', NULL, 3500, NULL, NULL, 'Safety issue - needs immediate attention', FALSE, FALSE, NULL, NULL, NULL);
-
--- Add 4 representative maintenance requests for Demo Renter
-INSERT INTO maintenance_requests (apartment_id, renter_id, title, description, category, type, priority, status, assigned_to, estimated_cost, actual_cost, completed_at, notes, manager_marked_resolved, renter_marked_resolved, resolution, resolution_notes, assigned_at) VALUES
+(8, 5, 'Balcony Railings', 'Loose balcony railings need fixing', 'general', 'repair', 'urgent', 'pending', NULL, 3500, NULL, NULL, 'Safety issue - needs immediate attention', FALSE, FALSE, NULL, NULL, NULL),
 (3, 6, 'AC Remote Not Working', 'AC remote needs new batteries', 'general', 'repair', 'medium', 'pending', NULL, 500, NULL, NULL, 'Simple battery replacement', FALSE, FALSE, NULL, NULL, NULL),
 (3, 6, 'Kitchen Cabinet Loose', 'Bottom cabinet door hinge broken', 'general', 'repair', 'medium', 'in_progress', 'Carpenter Team', 1500, NULL, NULL, 'Needs hinge replacement', FALSE, FALSE, NULL, NULL, '2025-01-20 10:00:00'),
 (3, 6, 'Bathroom Fan Noisy', 'Exhaust fan making loud noise', 'electric', 'repair', 'high', 'completed', 'Electrician', 2000, 1800, '2025-01-15 14:30:00', 'Fan motor issue', TRUE, FALSE, 'Lubricated fan motor', 'Awaiting renter confirmation', '2025-01-10 09:00:00'),
 (3, 6, 'Window Curtain Rod', 'Living room curtain rod fell down', 'general', 'repair', 'medium', 'resolved', 'Maintenance Team', 800, 750, '2024-12-10 11:00:00', 'Wall anchors broken', TRUE, TRUE, 'Replaced wall anchors', 'Renter confirmed fixed', '2024-12-05 14:00:00');
 
--- ============ INSERT EXACTLY 8 UTILITY BILLS (NO DUPLICATES) ============
--- First, ensure no existing utility bills
-DELETE FROM utility_bills;
+-- ============ INSERT UTILITY BILLS (8 items with correct status) ============
+TRUNCATE utility_bills;
 
--- Insert simplified utility bills (8 items ONLY)
-INSERT INTO utility_bills (type, building_id, amount, due_date, status, provider, account_number, month, consumption, description) VALUES
-('Building Maintenance', 1, 2000.00, '2025-02-10', 'upcoming', 'Building Management', NULL, 'February 2025', NULL, 'Feb 2025 Maintenance Bill'),
-('Gas', 1, 4000.00, '2025-11-30', 'upcoming', 'Titas Gas', NULL, 'November 2025', NULL, 'Gas Supply Bill'),
-('Electricity', 1, 15000.00, '2025-12-05', 'paid', 'National Grid', 'NG-123456', 'December 2025', '1200 kWh', 'Monthly Electricity Bill'),
-('Water', 1, 6000.00, '2025-12-07', 'paid', 'WASA', NULL, 'December 2025', NULL, 'Water Supply Bill'),
-('Maintenance Fee', 1, 10000.00, '2025-12-10', 'paid', 'Building Management', NULL, 'December 2025', NULL, 'Monthly Maintenance Fee'),
-('Security', 1, 8000.00, '2025-12-15', 'paid', 'SecureGuard Ltd.', NULL, 'December 2025', NULL, 'Security Service Bill'),
-('Internet', 1, 3000.00, '2026-01-05', 'upcoming', 'Bdcom Online', NULL, 'January 2026', NULL, 'Monthly Internet Bill'),
-('Garbage', 1, 2500.00, '2026-01-10', 'upcoming', 'City Corporation', NULL, 'January 2026', NULL, 'Garbage Collection Bill');
+INSERT INTO utility_bills (type, building_id, owner_id, amount, due_date, status, provider, account_number, month, consumption, description, paid_date, paid_amount) VALUES
+('Building Maintenance', 1, 1, 2000.00, '2025-02-10', 'upcoming', 'Building Management', NULL, 'February 2025', NULL, 'Feb 2025 Maintenance Bill', NULL, NULL),
+('Gas', 1, 1, 4000.00, '2025-11-30', 'upcoming', 'Titas Gas', NULL, 'November 2025', NULL, 'Gas Supply Bill', NULL, NULL),
+('Electricity', 1, 1, 15000.00, '2025-12-05', 'paid', 'National Grid', 'NG-123456', 'December 2025', '1200 kWh', 'Monthly Electricity Bill', '2025-12-01', 15000.00),
+('Water', 1, 1, 6000.00, '2025-12-07', 'paid', 'WASA', NULL, 'December 2025', NULL, 'Water Supply Bill', '2025-12-05', 6000.00),
+('Maintenance Fee', 1, 1, 10000.00, '2025-12-10', 'paid', 'Building Management', NULL, 'December 2025', NULL, 'Monthly Maintenance Fee', '2025-12-08', 10000.00),
+('Security', 1, 1, 8000.00, '2025-12-15', 'paid', 'SecureGuard Ltd.', NULL, 'December 2025', NULL, 'Security Service Bill', '2025-12-12', 8000.00),
+('Internet', 1, 1, 3000.00, '2026-01-05', 'upcoming', 'Bdcom Online', NULL, 'January 2026', NULL, 'Monthly Internet Bill', NULL, NULL),
+('Garbage', 1, 1, 2500.00, '2026-01-10', 'upcoming', 'City Corporation', NULL, 'January 2026', NULL, 'Garbage Collection Bill', NULL, NULL);
 
--- Insert bills (Manager bills)
-INSERT INTO bills (manager_id, title, amount, due_date, paid_date, status) VALUES
-(1, 'Electricity Bill', 15000.00, '2025-12-05', '2025-12-04', 'paid'),
-(1, 'Water Bill', 6000.00, '2025-12-07', '2025-12-12', 'paid'),
-(1, 'Gas Bill', 4000.00, '2025-11-30', NULL, 'overdue'),
-(1, 'Internet Bill', 3000.00, '2026-01-05', NULL, 'upcoming'),
-(1, 'Maintenance Fee', 10000.00, '2025-12-10', '2025-12-10', 'paid'),
-(1, 'Security Service', 8000.00, '2025-12-15', '2025-12-14', 'paid'),
-(1, 'Garbage Collection', 2000.00, '2026-01-10', NULL, 'upcoming'),
-(1, 'Building Maintenance - Jan 2025', 2000.00, '2025-01-10', '2025-01-09', 'paid'),
-(1, 'Building Maintenance - Feb 2025', 2000.00, '2025-02-10', NULL, 'upcoming'),
-(1, 'Parking Fee - Jan 2025', 1000.00, '2025-01-15', '2025-01-14', 'paid');
+-- Insert manager bills
+INSERT INTO bills (manager_id, title, amount, due_date, paid_date, status, description) VALUES
+(1, 'Electricity Bill', 15000.00, '2025-12-05', '2025-12-04', 'paid', 'Monthly electricity bill'),
+(1, 'Water Bill', 6000.00, '2025-12-07', '2025-12-12', 'paid', 'Monthly water bill'),
+(1, 'Gas Bill', 4000.00, '2025-11-30', NULL, 'overdue', 'Monthly gas bill'),
+(1, 'Internet Bill', 3000.00, '2026-01-05', NULL, 'upcoming', 'Monthly internet bill'),
+(1, 'Maintenance Fee', 10000.00, '2025-12-10', '2025-12-10', 'paid', 'Monthly maintenance fee'),
+(1, 'Security Service', 8000.00, '2025-12-15', '2025-12-14', 'paid', 'Security service bill'),
+(1, 'Garbage Collection', 2000.00, '2026-01-10', NULL, 'upcoming', 'Garbage collection bill'),
+(1, 'Building Maintenance - Jan 2025', 2000.00, '2025-01-10', '2025-01-09', 'paid', 'January maintenance'),
+(1, 'Building Maintenance - Feb 2025', 2000.00, '2025-02-10', NULL, 'upcoming', 'February maintenance'),
+(1, 'Parking Fee - Jan 2025', 1000.00, '2025-01-15', '2025-01-14', 'paid', 'Parking fee');
 
--- Insert owner expenses (For owner dashboard)
+-- Insert owner expenses
 INSERT INTO owner_expenses (owner_id, category, description, amount, expense_date, payment_method, receipt_number, notes) VALUES
 (1, 'property_tax', 'Annual property tax for Green Valley', 50000.00, '2025-01-15', 'bank_transfer', 'TAX-RCPT-001', 'Paid for 2025'),
 (1, 'insurance', 'Building insurance premium', 35000.00, '2025-01-10', 'check', 'INS-RCPT-001', 'Annual insurance'),
@@ -568,7 +534,7 @@ INSERT INTO manager_tasks (title, description, task_type, priority, status, due_
 ('Collect Rent February', 'Collect rent from all tenants for February', 'collection', 'high', 'pending', '2025-02-05', NULL),
 ('Tax Preparation', 'Prepare tax documents for 2024', 'financial', 'medium', 'pending', '2025-01-31', NULL);
 
--- Insert complaints (Atia's structure)
+-- Insert complaints
 INSERT INTO complaints (title, description, category, priority, apartment_id, renter_id, workflow_status) VALUES
 ('Leaky faucet', 'Kitchen faucet is dripping continuously', 'plumbing', 'medium', 1, 1, 'pending'),
 ('Broken living room light', 'Ceiling light not working', 'electric', 'high', 2, 2, 'in-progress'),
@@ -617,7 +583,63 @@ INSERT INTO maintenance_audit_log (request_id, old_status, new_status, change_re
 
 -- ==================== CREATE FUNCTIONS ====================
 
--- Function for payment pattern analysis
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION update_bill_status()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.paid_date IS NOT NULL THEN
+        NEW.status = 'paid';
+    ELSIF NEW.due_date < CURRENT_DATE THEN
+        NEW.status = 'overdue';
+    ELSIF NEW.due_date > CURRENT_DATE THEN
+        NEW.status = 'upcoming';
+    ELSE
+        NEW.status = 'pending';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION log_payment_status_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.status IS DISTINCT FROM NEW.status THEN
+        INSERT INTO payment_audit_log (payment_id, old_status, new_status, change_reason)
+        VALUES (NEW.id, OLD.status, NEW.status, 'Status changed');
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION log_renter_status_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.status IS DISTINCT FROM NEW.status THEN
+        INSERT INTO renters_audit_log (renter_id, old_status, new_status, change_reason)
+        VALUES (NEW.id, OLD.status, NEW.status, 'Status changed');
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION log_maintenance_status_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.status IS DISTINCT FROM NEW.status THEN
+        INSERT INTO maintenance_audit_log (request_id, old_status, new_status, change_reason)
+        VALUES (NEW.id, OLD.status, NEW.status, 'Status changed');
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION find_payment_pattern_renters(pattern_type VARCHAR DEFAULT 'late')
 RETURNS TABLE (
   renter_id INTEGER,
@@ -665,16 +687,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to get owner financial summary
 CREATE OR REPLACE FUNCTION get_owner_financial_summary(owner_id_param INTEGER)
 RETURNS TABLE (
   total_income DECIMAL(12,2),
   total_expenses DECIMAL(12,2),
   net_profit DECIMAL(12,2),
-  pending_payments INTEGER,
-  overdue_payments INTEGER,
-  vacant_apartments INTEGER,
-  occupied_apartments INTEGER
+  pending_payments BIGINT,
+  overdue_payments BIGINT,
+  vacant_apartments BIGINT,
+  occupied_apartments BIGINT
 ) AS $$
 BEGIN
   RETURN QUERY
@@ -700,49 +721,20 @@ BEGIN
     (SELECT COUNT(*) FROM payments p
      JOIN apartments a ON p.apartment_id = a.id
      JOIN owner_buildings ob ON a.building_id = ob.id
-     WHERE p.status = 'pending') as pending_payments,
+     WHERE p.status = 'pending')::BIGINT as pending_payments,
     (SELECT COUNT(*) FROM payments p
      JOIN apartments a ON p.apartment_id = a.id
      JOIN owner_buildings ob ON a.building_id = ob.id
-     WHERE p.status = 'overdue') as overdue_payments,
+     WHERE p.status = 'overdue')::BIGINT as overdue_payments,
     (SELECT COUNT(*) FROM apartments a
      JOIN owner_buildings ob ON a.building_id = ob.id
-     WHERE a.status = 'vacant') as vacant_apartments,
+     WHERE a.status = 'vacant')::BIGINT as vacant_apartments,
     (SELECT COUNT(*) FROM apartments a
      JOIN owner_buildings ob ON a.building_id = ob.id
-     WHERE a.status = 'occupied') as occupied_apartments
+     WHERE a.status = 'occupied')::BIGINT as occupied_apartments
   FROM income i, expenses e;
 END;
 $$ LANGUAGE plpgsql;
-
--- Function to update updated_at timestamp
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Function to update bill status based on dates
-CREATE OR REPLACE FUNCTION update_bill_status()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF NEW.paid_date IS NOT NULL THEN
-        NEW.status = 'paid';
-    ELSIF NEW.due_date < CURRENT_DATE THEN
-        NEW.status = 'overdue';
-    ELSIF NEW.due_date > CURRENT_DATE THEN
-        NEW.status = 'upcoming';
-    ELSE
-        NEW.status = 'pending';
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-
---Proc
 
 CREATE OR REPLACE PROCEDURE resolve_maintenance_request(
     request_id INTEGER,
@@ -753,7 +745,6 @@ CREATE OR REPLACE PROCEDURE resolve_maintenance_request(
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    -- Update maintenance request
     UPDATE maintenance_requests
     SET 
         status = 'completed',
@@ -763,7 +754,6 @@ BEGIN
         manager_marked_resolved = TRUE
     WHERE id = request_id;
     
-    -- Log the resolution
     INSERT INTO maintenance_audit_log (request_id, old_status, new_status, change_reason, changed_by)
     VALUES (
         request_id,
@@ -777,82 +767,8 @@ BEGIN
 END;
 $$;
 
---regex
-
--- SQL Query for Data Validation API
-WITH validation_stats AS (
-  -- Renters table validation
-  SELECT 
-    'renters' as table_name,
-    COUNT(*) as total_records,
-    COUNT(CASE WHEN phone ~ '^(?:\+?88)?01[3-9]\d{8}$' THEN 1 END) as valid_phones,
-    COUNT(CASE WHEN email ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$' THEN 1 END) as valid_emails,
-    COUNT(CASE WHEN nid_number ~ '^\d{10}$|^\d{13}$|^\d{17}$' THEN 1 END) as valid_nids,
-    NULL as valid_apt_numbers,
-    NULL as valid_transactions,
-    NULL as valid_amounts
-  FROM renters
-  
-  UNION ALL
-  
-  -- Apartments table validation  
-  SELECT 
-    'apartments' as table_name,
-    COUNT(*) as total_records,
-    NULL as valid_phones,
-    NULL as valid_emails,
-    NULL as valid_nids,
-    COUNT(CASE WHEN apartment_number ~ '^(?:[A-Z]?\d+|[A-Z])$' THEN 1 END) as valid_apt_numbers,
-    NULL as valid_transactions,
-    NULL as valid_amounts
-  FROM apartments
-  
-  UNION ALL
-  
-  -- Payments table validation
-  SELECT 
-    'payments' as table_name,
-    COUNT(*) as total_records,
-    NULL as valid_phones,
-    NULL as valid_emails,
-    NULL as valid_nids,
-    NULL as valid_apt_numbers,
-    COUNT(CASE WHEN transaction_id ~ '^[A-Z0-9-_]+$' THEN 1 END) as valid_transactions,
-    COUNT(CASE WHEN amount::text ~ '^\d+(\.\d{1,2})?$' THEN 1 END) as valid_amounts
-  FROM payments
-  
-  UNION ALL
-  
-  -- Utility bills validation
-  SELECT 
-    'utility_bills' as table_name,
-    COUNT(*) as total_records,
-    NULL as valid_phones,
-    NULL as valid_emails,
-    NULL as valid_nids,
-    NULL as valid_apt_numbers,
-    COUNT(CASE WHEN account_number ~ '^[A-Z0-9-]+$' THEN 1 END) as valid_transactions,
-    COUNT(CASE WHEN amount::text ~ '^\d+(\.\d{1,2})?$' THEN 1 END) as valid_amounts
-  FROM utility_bills
-  
-  UNION ALL
-  
-  -- Users table validation
-  SELECT 
-    'users' as table_name,
-    COUNT(*) as total_records,
-    COUNT(CASE WHEN phone ~ '^(?:\+?88)?01[3-9]\d{8}$' THEN 1 END) as valid_phones,
-    COUNT(CASE WHEN email ~ '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$' THEN 1 END) as valid_emails,
-    NULL as valid_nids,
-    NULL as valid_apt_numbers,
-    NULL as valid_transactions,
-    NULL as valid_amounts
-  FROM users
-)
-SELECT * FROM validation_stats;
 -- ==================== CREATE TRIGGERS ====================
 
--- Update timestamps
 CREATE TRIGGER trigger_users_updated_at BEFORE UPDATE ON users
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
@@ -883,7 +799,9 @@ FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER trigger_owner_expenses_updated_at BEFORE UPDATE ON owner_expenses
 FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Auto-update bill status triggers
+CREATE TRIGGER trigger_messages_updated_at BEFORE UPDATE ON messages
+FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 CREATE TRIGGER trigger_bills_status_update 
 BEFORE INSERT OR UPDATE ON bills
 FOR EACH ROW EXECUTE FUNCTION update_bill_status();
@@ -892,67 +810,17 @@ CREATE TRIGGER trigger_utility_bills_status_update
 BEFORE INSERT OR UPDATE ON utility_bills
 FOR EACH ROW EXECUTE FUNCTION update_bill_status();
 
--- Audit triggers
-CREATE OR REPLACE FUNCTION log_payment_status_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF OLD.status IS DISTINCT FROM NEW.status THEN
-        INSERT INTO payment_audit_log (payment_id, old_status, new_status, change_reason)
-        VALUES (NEW.id, OLD.status, NEW.status, 'Status changed');
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 CREATE TRIGGER trigger_payment_audit AFTER UPDATE OF status ON payments
 FOR EACH ROW EXECUTE FUNCTION log_payment_status_change();
 
-CREATE OR REPLACE FUNCTION log_renter_status_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF OLD.status IS DISTINCT FROM NEW.status THEN
-        INSERT INTO renters_audit_log (renter_id, old_status, new_status, change_reason)
-        VALUES (NEW.id, OLD.status, NEW.status, 'Status changed');
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
 CREATE TRIGGER trigger_renter_audit AFTER UPDATE OF status ON renters
 FOR EACH ROW EXECUTE FUNCTION log_renter_status_change();
-
-CREATE OR REPLACE FUNCTION log_maintenance_status_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF OLD.status IS DISTINCT FROM NEW.status THEN
-        INSERT INTO maintenance_audit_log (request_id, old_status, new_status, change_reason)
-        VALUES (NEW.id, OLD.status, NEW.status, 'Status changed');
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trigger_maintenance_audit AFTER UPDATE OF status ON maintenance_requests
 FOR EACH ROW EXECUTE FUNCTION log_maintenance_status_change();
 
 -- ==================== CREATE VIEWS ====================
 
--- Monthly financial summary
-CREATE MATERIALIZED VIEW monthly_financial_summary AS
-SELECT 
-    DATE_TRUNC('month', p.month) as report_month,
-    COUNT(p.id) as total_payments,
-    SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END) as total_collected,
-    SUM(CASE WHEN p.status = 'pending' THEN p.amount ELSE 0 END) as total_pending,
-    SUM(CASE WHEN p.status = 'overdue' THEN p.amount ELSE 0 END) as total_overdue,
-    COUNT(CASE WHEN p.status = 'paid' THEN 1 END) as paid_count,
-    COUNT(CASE WHEN p.status = 'pending' THEN 1 END) as pending_count,
-    COUNT(CASE WHEN p.status = 'overdue' THEN 1 END) as overdue_count
-FROM payments p
-GROUP BY DATE_TRUNC('month', p.month)
-ORDER BY report_month DESC;
-
--- User authentication view
 CREATE VIEW user_auth_view AS
 SELECT 
     u.id,
@@ -980,8 +848,6 @@ LEFT JOIN owners o ON u.id = o.user_id AND u.role = 'owner'
 LEFT JOIN managers m ON u.id = m.user_id AND u.role = 'manager'
 LEFT JOIN renters r ON u.id = r.user_id AND u.role = 'renter';
 
-
--- Owner dashboard view
 CREATE VIEW owner_dashboard_view AS
 SELECT 
     o.id as owner_id,
@@ -1002,7 +868,6 @@ LEFT JOIN payments p ON a.id = p.apartment_id
 LEFT JOIN owner_expenses oe ON o.id = oe.owner_id
 GROUP BY o.id, o.name;
 
--- Rent payments view
 CREATE VIEW rent_payments_view AS
 SELECT 
     p.*,
@@ -1023,10 +888,23 @@ JOIN buildings b ON a.building_id = b.id
 LEFT JOIN owners o ON b.owner_id = o.id
 LEFT JOIN payment_confirmations pc ON p.id = pc.payment_id;
 
--- Owner utility bills view
 CREATE VIEW owner_utility_bills_view AS
 SELECT 
-    ub.*,
+    ub.id,
+    ub.type,
+    ub.building_id,
+    ub.amount,
+    ub.due_date,
+    ub.status,
+    ub.provider,
+    ub.account_number,
+    ub.month,
+    ub.consumption,
+    ub.description,
+    ub.paid_date,
+    ub.paid_amount,
+    ub.created_at,
+    ub.updated_at,
     b.name as building_name,
     o.id as owner_id,
     o.name as owner_name
@@ -1034,7 +912,6 @@ FROM utility_bills ub
 JOIN buildings b ON ub.building_id = b.id
 JOIN owners o ON b.owner_id = o.id;
 
--- Maintenance resolution view
 CREATE VIEW maintenance_resolution_view AS
 SELECT 
     mr.*,
@@ -1052,47 +929,109 @@ JOIN renters r ON mr.renter_id = r.id
 JOIN apartments a ON mr.apartment_id = a.id
 JOIN buildings b ON a.building_id = b.id;
 
+CREATE MATERIALIZED VIEW monthly_financial_summary AS
+SELECT 
+    DATE_TRUNC('month', p.month) as report_month,
+    COUNT(p.id) as total_payments,
+    SUM(CASE WHEN p.status = 'paid' THEN p.amount ELSE 0 END) as total_collected,
+    SUM(CASE WHEN p.status = 'pending' THEN p.amount ELSE 0 END) as total_pending,
+    SUM(CASE WHEN p.status = 'overdue' THEN p.amount ELSE 0 END) as total_overdue,
+    COUNT(CASE WHEN p.status = 'paid' THEN 1 END) as paid_count,
+    COUNT(CASE WHEN p.status = 'pending' THEN 1 END) as pending_count,
+    COUNT(CASE WHEN p.status = 'overdue' THEN 1 END) as overdue_count
+FROM payments p
+GROUP BY DATE_TRUNC('month', p.month)
+ORDER BY report_month DESC;
 
--- Messages table for communication
-CREATE TABLE IF NOT EXISTS messages (
-    id SERIAL PRIMARY KEY,
-    sender_id VARCHAR(50) NOT NULL, -- Format: 'role_id' (e.g., 'manager_1', 'renter_5', 'owner_2')
-    receiver_id VARCHAR(50) NOT NULL,
-    message TEXT NOT NULL,
-    is_read BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- Fix the owner_all_bills_view with proper type casting
+DROP VIEW IF EXISTS owner_all_bills_view CASCADE;
 
--- Indexes for messages
-CREATE INDEX idx_messages_sender ON messages(sender_id);
-CREATE INDEX idx_messages_receiver ON messages(receiver_id);
-CREATE INDEX idx_messages_conversation ON messages(sender_id, receiver_id);
-CREATE INDEX idx_messages_created_at ON messages(created_at DESC);
+CREATE VIEW owner_all_bills_view AS
+SELECT 
+    id,
+    'utility'::TEXT as bill_source,
+    type as bill_type,
+    type as title,
+    building_id,
+    (SELECT name FROM buildings WHERE id = building_id) as building_name,
+    owner_id,
+    amount,
+    due_date,
+    status::TEXT as status,  -- Cast to TEXT to avoid enum mismatch
+    paid_date,
+    paid_amount,
+    provider,
+    account_number,
+    month,
+    consumption,
+    description,
+    created_at,
+    updated_at
+FROM utility_bills
+WHERE owner_id IS NOT NULL
 
--- Trigger for updated_at
-CREATE TRIGGER trigger_messages_updated_at 
-    BEFORE UPDATE ON messages
-    FOR EACH ROW 
-    EXECUTE FUNCTION update_updated_at_column();
+UNION ALL
 
--- ==================== VERIFICATION & SUMMARY ====================
+SELECT 
+    id,
+    'manager'::TEXT as bill_source,
+    'Manager Bill' as bill_type,
+    title,
+    NULL::INTEGER as building_id,
+    'All Buildings' as building_name,
+    (SELECT assigned_owner_id FROM managers WHERE id = manager_id) as owner_id,
+    amount,
+    due_date,
+    status::TEXT as status,  -- Cast to TEXT
+    paid_date,
+    amount as paid_amount,
+    NULL::VARCHAR as provider,
+    NULL::VARCHAR as account_number,
+    NULL::VARCHAR as month,
+    NULL::VARCHAR as consumption,
+    description,
+    created_at,
+    updated_at
+FROM bills
+WHERE manager_id IS NOT NULL
+
+UNION ALL
+
+SELECT 
+    id,
+    'expense'::TEXT as bill_source,
+    category as bill_type,
+    category || ' Expense' as title,
+    NULL::INTEGER as building_id,
+    'Owner Expense' as building_name,
+    owner_id,
+    amount,
+    expense_date as due_date,
+    CASE WHEN expense_date <= CURRENT_DATE THEN 'paid' ELSE 'pending' END as status,
+    expense_date as paid_date,
+    amount as paid_amount,
+    NULL::VARCHAR as provider,
+    receipt_number as account_number,
+    NULL::VARCHAR as month,
+    NULL::VARCHAR as consumption,
+    description,
+    created_at,
+    updated_at
+FROM owner_expenses;
+
+-- ==================== FINAL VERIFICATION ====================
 
 DO $$
 DECLARE
     total_tables INTEGER;
     total_rows BIGINT;
-    has_dual_resolution BOOLEAN;
-    has_owner_expenses BOOLEAN;
     utility_bill_count INTEGER;
 BEGIN
-    -- Count tables
     SELECT COUNT(*) INTO total_tables
     FROM information_schema.tables 
     WHERE table_schema = 'public' 
     AND table_type = 'BASE TABLE';
     
-    -- Count total rows
     SELECT SUM(row_count) INTO total_rows
     FROM (
         SELECT COUNT(*) as row_count FROM users
@@ -1113,171 +1052,47 @@ BEGIN
         UNION ALL SELECT COUNT(*) FROM payment_audit_log
         UNION ALL SELECT COUNT(*) FROM renters_audit_log
         UNION ALL SELECT COUNT(*) FROM maintenance_audit_log
+        UNION ALL SELECT COUNT(*) FROM messages
     ) as counts;
     
-    -- Check dual-resolution columns
-    SELECT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'maintenance_requests' 
-        AND column_name IN ('manager_marked_resolved', 'renter_marked_resolved')
-    ) INTO has_dual_resolution;
-    
-    -- Check owner expenses table
-    SELECT EXISTS (
-        SELECT 1 FROM information_schema.tables 
-        WHERE table_name = 'owner_expenses'
-    ) INTO has_owner_expenses;
-    
-    -- Check utility bills count
     SELECT COUNT(*) INTO utility_bill_count FROM utility_bills;
     
     RAISE NOTICE '
     ============================================
-    🚀 OTTALIKA DATABASE MERGE COMPLETE
+    OTTALIKA DATABASE COMPLETE
     ============================================
-    ✅ Created % tables with all relationships
-    ✅ Created 8 custom data types (including bill_status)
-    ✅ Created 30+ indexes for performance
-    ✅ Inserted % total rows of sample data
-    ✅ Dual-resolution columns: %s
-    ✅ Owner expenses tracking: %s
-    ✅ Utility bills: %s (should be 8)
-    ✅ Created 6 views for different roles
-    ✅ Added 2 owners with separate buildings
-    ✅ Added owner financial functions
+    Created % tables
+    Inserted % total rows
+    Utility bills: % (should be 8)
     ============================================
-    📊 DEMO USERS READY:
-        👑 Owner 1: owner@ottalika.com / demo123
-        👑 Owner 2: owner2@ottalika.com / demo123
-        👨‍💼 Manager: manager@ottalika.com / demo123
-        👨‍💼 Manager 2: manager2@ottalika.com / demo123
-        👤 Renter: renter@ottalika.com / demo123
+    DEMO USERS:
+        Owner 1: owner@ottalika.com / demo123
+        Owner 2: owner2@ottalika.com / demo123
+        Manager: manager@ottalika.com / demo123
+        Renter: renter@ottalika.com / demo123
     ============================================
-    💾 Database is ready for your application!
-    ============================================
-    ', total_tables, total_rows, 
-    CASE WHEN has_dual_resolution THEN '✅ YES' ELSE '❌ NO' END,
-    CASE WHEN has_owner_expenses THEN '✅ YES' ELSE '❌ NO' END,
-    utility_bill_count;
+    ', total_tables, total_rows, utility_bill_count;
 END $$;
 
--- Show table counts
-SELECT 
-    'Table' as "Table Name", 
-    'Row Count' as "Row Count", 
-    'Description' as "Description"
-FROM (VALUES ('Tables')) AS header
-UNION ALL
-SELECT '------', '--------', '-----------'
-UNION ALL
-SELECT 'users', COUNT(*)::text, 'User accounts for authentication' FROM users
-UNION ALL
-SELECT 'owners', COUNT(*)::text, 'Building owners' FROM owners
-UNION ALL
-SELECT 'managers', COUNT(*)::text, 'Property managers' FROM managers
-UNION ALL
-SELECT 'renters', COUNT(*)::text, 'Tenants/renters' FROM renters
-UNION ALL
-SELECT 'buildings', COUNT(*)::text, 'Building properties' FROM buildings
-UNION ALL
-SELECT 'apartments', COUNT(*)::text, 'Individual apartments' FROM apartments
-UNION ALL
-SELECT 'payments', COUNT(*)::text, 'Rent payment records' FROM payments
-UNION ALL
-SELECT 'payment_confirmations', COUNT(*)::text, 'Payment verification records' FROM payment_confirmations
-UNION ALL
-SELECT 'maintenance_requests', COUNT(*)::text, 'Maintenance requests' FROM maintenance_requests
-UNION ALL
-SELECT 'manager_tasks', COUNT(*)::text, 'Manager task assignments' FROM manager_tasks
-UNION ALL
-SELECT 'complaints', COUNT(*)::text, 'Tenant complaints' FROM complaints
-UNION ALL
-SELECT 'complaint_resolution', COUNT(*)::text, 'Complaint resolution tracking' FROM complaint_resolution
-UNION ALL
-SELECT 'bills', COUNT(*)::text, 'Utility and expense bills' FROM bills
-UNION ALL
-SELECT 'utility_bills', COUNT(*)::text, 'Separate utility bills' FROM utility_bills
-UNION ALL
-SELECT 'owner_expenses', COUNT(*)::text, 'Owner expense tracking' FROM owner_expenses
-UNION ALL
-SELECT 'payment_audit_log', COUNT(*)::text, 'Payment change audit trail' FROM payment_audit_log
-UNION ALL
-SELECT 'renters_audit_log', COUNT(*)::text, 'Renter status change audit' FROM renters_audit_log
-UNION ALL
-SELECT 'maintenance_audit_log', COUNT(*)::text, 'Maintenance status audit' FROM maintenance_audit_log
-ORDER BY 
-    CASE WHEN "Table Name" = 'Table' THEN 1
-         WHEN "Table Name" = '------' THEN 2
-         ELSE 3 END,
-    "Table Name";
-
--- Show demo users
-SELECT 'Demo Users' as "Email", 'Role' as "Role", 'Password' as "Password"
-FROM (VALUES ('Demo Users')) AS header
-UNION ALL
-SELECT '--------------', '------', '----------'
-UNION ALL
-SELECT 'owner@ottalika.com', 'owner', 'demo123'
-UNION ALL
-SELECT 'owner2@ottalika.com', 'owner', 'demo123'
-UNION ALL
-SELECT 'manager@ottalika.com', 'manager', 'demo123'
-UNION ALL
-SELECT 'manager2@ottalika.com', 'manager', 'demo123'
-UNION ALL
-SELECT 'renter@ottalika.com', 'renter', 'demo123';
-
--- Test owner financial summary
-SELECT 'Testing Owner Financial Summary...' as test;
-SELECT * FROM get_owner_financial_summary(1);
-
--- Test authentication query
-SELECT 'Testing authentication query...' as test;
-SELECT 
-    u.id, 
-    u.email, 
-    u.role,
-    u."isActive",
-    CASE 
-        WHEN u.role = 'owner' THEN o.name
-        WHEN u.role = 'manager' THEN m.name
-        WHEN u.role = 'renter' THEN r.name
-        ELSE u.username
-    END as full_name
-FROM users u
-LEFT JOIN owners o ON u.id = o.user_id AND u.role = 'owner'
-LEFT JOIN managers m ON u.id = m.user_id AND u.role = 'manager'
-LEFT JOIN renters r ON u.id = r.user_id AND u.role = 'renter'
-WHERE u.email IN ('owner@ottalika.com', 'manager@ottalika.com', 'renter@ottalika.com')
-ORDER BY u.role;
-
--- Show sample owner data
-SELECT 'Sample Owner Dashboard Data:' as "Title";
-SELECT '------------------------' as "---";
-SELECT 
-    owner_id,
-    owner_name,
-    total_buildings,
-    total_apartments,
-    occupied_apartments,
-    vacant_apartments,
-    total_income,
-    total_expenses,
-    net_profit
-FROM owner_dashboard_view;
-
--- Show sample utility bills for owner
-SELECT 'Sample Utility Bills for Owner:' as "Title";
-SELECT '----------------------------' as "---";
+-- Show utility bills with correct status
 SELECT 
     type,
-    building_name,
     amount,
     due_date,
     status,
-    provider,
-    month
-FROM owner_utility_bills_view
-WHERE owner_id = 1
-ORDER BY due_date DESC
-LIMIT 8;
+    paid_date,
+    CASE 
+        WHEN due_date < CURRENT_DATE AND status != 'paid' THEN 'Should be PAID or OVERDUE'
+        WHEN due_date > CURRENT_DATE AND status = 'paid' THEN 'Should be UPCOMING'
+        ELSE 'Correct'
+    END as status_check
+FROM utility_bills
+ORDER BY due_date;
+
+-- Show owner all bills view (only if it exists)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_views WHERE viewname = 'owner_all_bills_view') THEN
+        RAISE NOTICE 'Owner All Bills View created successfully';
+    END IF;
+END $$;
