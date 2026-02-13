@@ -27,7 +27,7 @@ DROP TYPE IF EXISTS manager_task_priority CASCADE;
 DROP TYPE IF EXISTS manager_task_status CASCADE;
 DROP TYPE IF EXISTS bill_status CASCADE;
 
--- ==================== CREATE TYPES ====================
+-- ========= =========== CREATE TYPES ====================
 
 CREATE TYPE user_role AS ENUM ('owner', 'manager', 'renter');
 CREATE TYPE renter_status AS ENUM ('active', 'inactive', 'pending', 'terminated');
@@ -1051,6 +1051,30 @@ FROM maintenance_requests mr
 JOIN renters r ON mr.renter_id = r.id
 JOIN apartments a ON mr.apartment_id = a.id
 JOIN buildings b ON a.building_id = b.id;
+
+
+-- Messages table for communication
+CREATE TABLE IF NOT EXISTS messages (
+    id SERIAL PRIMARY KEY,
+    sender_id VARCHAR(50) NOT NULL, -- Format: 'role_id' (e.g., 'manager_1', 'renter_5', 'owner_2')
+    receiver_id VARCHAR(50) NOT NULL,
+    message TEXT NOT NULL,
+    is_read BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes for messages
+CREATE INDEX idx_messages_sender ON messages(sender_id);
+CREATE INDEX idx_messages_receiver ON messages(receiver_id);
+CREATE INDEX idx_messages_conversation ON messages(sender_id, receiver_id);
+CREATE INDEX idx_messages_created_at ON messages(created_at DESC);
+
+-- Trigger for updated_at
+CREATE TRIGGER trigger_messages_updated_at 
+    BEFORE UPDATE ON messages
+    FOR EACH ROW 
+    EXECUTE FUNCTION update_updated_at_column();
 
 -- ==================== VERIFICATION & SUMMARY ====================
 

@@ -1077,5 +1077,324 @@ router.get('/documents', async (req: Request, res: Response) => {
     });
   }
 });
+// ==================== RENTER MESSAGES ENDPOINTS ====================
+
+// GET /api/renter/messages - Get all conversations for renter
+router.get('/messages', async (req: Request, res: Response) => {
+  try {
+    const renterId = (req as any).renterId; // This is 6
+    console.log('📱 Fetching conversations for renter ID:', renterId);
+
+    // Get manager info (always ID 1)
+    const managerResult = await dbQuery(
+      'SELECT id, name, designation FROM managers WHERE id = 1'
+    );
+
+    // Get owner info (from the building they're renting)
+    const ownerResult = await dbQuery(`
+      SELECT o.id, o.name
+      FROM apartments a
+      JOIN buildings b ON a.building_id = b.id
+      JOIN owners o ON b.owner_id = o.id
+      WHERE a.current_renter_id = $1
+      LIMIT 1
+    `, [renterId]);
+
+    console.log('Manager:', managerResult.rows[0]);
+    console.log('Owner:', ownerResult.rows[0]);
+
+    const conversations = [];
+
+    // Add manager conversation
+    if (managerResult.rows.length > 0) {
+      // Get last message with manager
+      const managerMessages = await dbQuery(`
+        SELECT 
+          message,
+          created_at
+        FROM messages 
+        WHERE (sender_id = 'manager_1' AND receiver_id = 'renter_' || $1) OR
+              (sender_id = 'renter_' || $1 AND receiver_id = 'manager_1')
+        ORDER BY created_at DESC
+        LIMIT 1
+      `, [renterId]);
+
+      // Get unread count from manager
+      const unreadCount = await dbQuery(`
+        SELECT COUNT(*) as count
+        FROM messages 
+        WHERE sender_id = 'manager_1' 
+          AND receiver_id = 'renter_' || $1 
+          AND is_read = false
+      `, [renterId]);
+
+      conversations.push({
+        id: managerResult.rows[0].id,
+        name: managerResult.rows[0].name,
+        role: 'manager',
+        designation: managerResult.rows[0].designation || 'Property Manager',
+        last_message: managerMessages.rows[0]?.message || 'No messages yet',
+        last_message_time: managerMessages.rows[0]?.created_at || new Date(),
+        unread_count: parseInt(unreadCount.rows[0]?.count) || 0
+      });
+    }
+
+    // Add owner conversation if exists
+    if (ownerResult.rows.length > 0) {
+      const ownerId = ownerResult.rows[0].id;
+      
+      // Get last message with owner
+      const ownerMessages = await dbQuery(`
+        SELECT 
+          message,
+          created_at
+        FROM messages 
+        WHERE (sender_id = 'owner_' || $2 AND receiver_id = 'renter_' || $1) OR
+              (sender_id = 'renter_' || $1 AND receiver_id = 'owner_' || $2)
+        ORDER BY created_at DESC
+        LIMIT 1
+      `, [renterId, ownerId]);
+
+      // Get unread count from owner
+      const unreadCount = await dbQuery(`
+        SELECT COUNT(*) as count
+        FROM messages 
+        WHERE sender_id = 'owner_' || $2 
+          AND receiver_id = 'renter_' || $1 
+          AND is_read = false
+      `, [renterId, ownerId]);
+
+      conversations.push({
+        id: ownerId,
+        name: ownerResult.rows[0].name,
+        role: 'owner',
+        designation: 'Building Owner',
+        last_message: ownerMessages.rows[0]?.message || 'No messages yet',
+        last_message_time: ownerMessages.rows[0]?.created_at || new Date(),
+        unread_count: parseInt(unreadCount.rows[0]?.count) || 0
+      });
+    }
+
+    // Sort by last_message_time (most recent first)
+    conversations.sort((a, b) => 
+      new Date(b.last_message_time).getTime() - new Date(a.last_message_time).getTime()
+    );
+
+    console.log('✅ Sending conversations:', conversations.length);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        conversations: conversations
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error fetching conversations:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch conversations',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/renter/messages/:contactId - Get messages with specific contact
+router.get('/messages/:contactId', async (req: Request, res: Response) => {
+  try {
+    const renterId = (req as any).renterId; // This is 6
+    const contactId = parseInt(req.params.contactId);
+    const { role } = req.query;
+
+    console.log('📥 Fetching messages:', { renterId, contactId, role });
+
+    if (role !== 'manager' && role !== 'owner') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role parameter'
+      });
+    }
+
+    const renterString = 'renter_' + renterId;
+    const contactString = role + '_' + contactId;
+
+    console.log('Looking for messages between:', renterString, 'and', contactString);
+
+    // Get all messages between renter and contact
+    const messages = await dbQuery(`
+      SELECT 
+        m.id,
+        m.message,
+        m.created_at as timestamp,
+        m.is_read,
+        CASE 
+          WHEN m.sender_id = $1 THEN true
+          ELSE false
+        END as is_own,
+        CASE 
+          WHEN m.sender_id = $1 THEN 'You'
+          ELSE COALESCE(u.name, 'Unknown')
+        END as sender_name
+      FROM messages m
+      LEFT JOIN ${role === 'manager' ? 'managers' : 'owners'} u ON u.id = $3
+      WHERE 
+        (m.sender_id = $1 AND m.receiver_id = $2) OR
+        (m.sender_id = $2 AND m.receiver_id = $1)
+      ORDER BY m.created_at ASC
+    `, [renterString, contactString, contactId]);
+
+    console.log(`✅ Found ${messages.rows.length} messages`);
+
+    // Mark messages as read
+    await dbQuery(`
+      UPDATE messages 
+      SET is_read = true 
+      WHERE 
+        receiver_id = $1 AND
+        sender_id = $2 AND
+        is_read = false
+    `, [renterString, contactString]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        messages: messages.rows
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Error fetching messages:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch messages',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/renter/messages - Send a message
+router.post('/messages', async (req: Request, res: Response) => {
+  try {
+    const renterId = (req as any).renterId; // This is 6
+    const { receiverId, message, role } = req.body;
+
+    console.log('📨 Sending message:', { renterId, receiverId, message, role });
+
+    if (!receiverId || !message || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields'
+      });
+    }
+
+    // Get renter name
+    const renterResult = await dbQuery(
+      'SELECT name FROM renters WHERE id = $1',
+      [renterId]
+    );
+
+    const renterString = 'renter_' + renterId;
+    const receiverString = role + '_' + receiverId;
+
+    // Insert the message
+    const result = await dbQuery(`
+      INSERT INTO messages (
+        sender_id,
+        receiver_id,
+        message,
+        created_at,
+        is_read
+      ) VALUES (
+        $1,
+        $2,
+        $3,
+        NOW(),
+        false
+      ) RETURNING id, sender_id, receiver_id, message, created_at, is_read
+    `, [renterString, receiverString, message]);
+
+    console.log('✅ Message inserted:', result.rows[0]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: {
+          id: result.rows[0].id,
+          message: result.rows[0].message,
+          timestamp: result.rows[0].created_at,
+          is_own: true,
+          sender_name: renterResult.rows[0]?.name || 'You',
+          status: 'sent'
+        }
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Error sending message:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send message',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/renter/contacts - Get contacts (simplified)
+router.get('/contacts', async (req: Request, res: Response) => {
+  try {
+    const renterId = (req as any).renterId;
+    
+    console.log('📱 Fetching contacts for renter:', renterId);
+    
+    // Simple contacts list
+    const contacts = [
+      {
+        id: 1,
+        name: 'Building Manager',
+        role: 'manager',
+        designation: 'Property Manager',
+        last_message: 'How can I help you?',
+        last_message_time: new Date().toISOString(),
+        unread_count: 0
+      }
+    ];
+    
+    // Check if owner exists
+    const ownerResult = await dbQuery(`
+      SELECT o.id, o.name
+      FROM apartments a
+      JOIN buildings b ON a.building_id = b.id
+      JOIN owners o ON b.owner_id = o.id
+      WHERE a.current_renter_id = $1
+    `, [renterId]);
+    
+    if (ownerResult.rows.length > 0) {
+      contacts.push({
+        id: ownerResult.rows[0].id,
+        name: ownerResult.rows[0].name,
+        role: 'owner',
+        designation: 'Building Owner',
+        last_message: 'Contact the owner',
+        last_message_time: new Date().toISOString(),
+        unread_count: 0
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        contacts: contacts
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('❌ Get contacts error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get contacts'
+    });
+  }
+});
+
 
 export default router;

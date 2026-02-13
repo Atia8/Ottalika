@@ -2643,6 +2643,244 @@ router.get('/analytics/audit-logs', async (req: Request, res: Response) => {
     });
   }
 });
+// ==================== MESSAGE ENDPOINTS ====================
 
+// Get all conversations for manager
+router.get('/messages', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).managerId; // Using the authenticate middleware
+    
+    // Get manager's actual ID
+    const managerResult = await dbQuery(
+      'SELECT id FROM managers WHERE user_id = $1',
+      [userId]
+    );
+    
+    if (managerResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Manager not found'
+      });
+    }
+    
+    const managerId = managerResult.rows[0].id;
+
+    // Get all conversations
+    const conversations = await dbQuery(`
+      WITH conversation_users AS (
+        SELECT DISTINCT 
+          r.id as user_id,
+          r.name,
+          'renter' as role,
+          r.phone,
+          a.apartment_number,
+          b.name as building_name
+        FROM renters r
+        LEFT JOIN apartments a ON r.id = a.current_renter_id
+        LEFT JOIN buildings b ON a.building_id = b.id
+        WHERE r.status = 'active'
+      ),
+      last_messages AS (
+        SELECT DISTINCT ON (
+          CASE 
+            WHEN sender_id LIKE 'renter_%' THEN sender_id
+            WHEN receiver_id LIKE 'renter_%' THEN receiver_id
+          END
+        )
+          sender_id,
+          receiver_id,
+          message,
+          created_at,
+          is_read,
+          CASE 
+            WHEN sender_id LIKE 'renter_%' THEN CAST(SUBSTRING(sender_id FROM 8) AS INTEGER)
+            WHEN receiver_id LIKE 'renter_%' THEN CAST(SUBSTRING(receiver_id FROM 8) AS INTEGER)
+            ELSE NULL
+          END as entity_id
+        FROM messages
+        WHERE sender_id = 'manager_' || $1 OR receiver_id = 'manager_' || $1
+        ORDER BY 
+          CASE 
+            WHEN sender_id LIKE 'renter_%' THEN sender_id
+            WHEN receiver_id LIKE 'renter_%' THEN receiver_id
+          END,
+          created_at DESC
+      )
+      SELECT 
+        cu.user_id as id,
+        jsonb_build_object(
+          'id', cu.user_id,
+          'name', cu.name,
+          'role', cu.role,
+          'apartment', cu.apartment_number,
+          'building', cu.building_name
+        ) as with_user,
+        COALESCE(lm.message, 'No messages yet') as last_message,
+        COALESCE(lm.created_at, NOW()) as last_message_time,
+        COALESCE((
+          SELECT COUNT(*) 
+          FROM messages m 
+          WHERE 
+            m.receiver_id = 'manager_' || $1 AND
+            m.sender_id = 'renter_' || cu.user_id AND
+            m.is_read = false
+        ), 0) as unread_count
+      FROM conversation_users cu
+      LEFT JOIN last_messages lm ON lm.entity_id = cu.user_id
+      ORDER BY last_message_time DESC
+    `, [managerId]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        conversations: conversations.rows
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('Error fetching conversations:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch conversations',
+      error: error.message
+    });
+  }
+});
+
+// Get messages for a specific conversation
+router.get('/messages/:userId', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).managerId;
+    const { userId: otherUserId } = req.params;
+    const { role } = req.query;
+
+    if (role !== 'renter' && role !== 'owner') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role parameter'
+      });
+    }
+
+    const managerResult = await dbQuery(
+      'SELECT id FROM managers WHERE user_id = $1',
+      [userId]
+    );
+    
+    const managerId = managerResult.rows[0].id;
+
+    const messages = await dbQuery(`
+      SELECT 
+        m.id,
+        m.message,
+        m.created_at as timestamp,
+        m.is_read,
+        CASE 
+          WHEN m.sender_id = 'manager_' || $1 THEN true
+          ELSE false
+        END as is_own,
+        CASE 
+          WHEN m.sender_id = 'manager_' || $1 THEN 'sent'
+          WHEN m.is_read THEN 'read'
+          ELSE 'delivered'
+        END as status,
+        COALESCE(u.name, 'Unknown') as sender_name
+      FROM messages m
+      LEFT JOIN ${role === 'renter' ? 'renters' : 'owners'} u ON 
+        CASE 
+          WHEN m.sender_id = '${role}_' || $2 THEN u.id = $2::integer
+          ELSE false
+        END
+      WHERE 
+        (m.sender_id = 'manager_' || $1 AND m.receiver_id = '${role}_' || $2) OR
+        (m.sender_id = '${role}_' || $2 AND m.receiver_id = 'manager_' || $1)
+      ORDER BY m.created_at ASC
+    `, [managerId, otherUserId]);
+
+    // Mark messages as read
+    await dbQuery(`
+      UPDATE messages 
+      SET is_read = true 
+      WHERE 
+        receiver_id = 'manager_' || $1 AND
+        sender_id = $2 || '_' || $3 AND
+        is_read = false
+    `, [managerId, role, otherUserId]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        messages: messages.rows
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('Error fetching messages:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch messages',
+      error: error.message
+    });
+  }
+});
+
+// Send a message
+router.post('/messages', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).managerId;
+    const { receiverId, message, role } = req.body;
+
+    if (!receiverId || !message || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields'
+      });
+    }
+
+    const managerResult = await dbQuery(`
+      SELECT m.id, m.name 
+      FROM managers m 
+      WHERE m.user_id = $1
+    `, [userId]);
+    
+    const managerId = managerResult.rows[0].id;
+    const managerName = managerResult.rows[0].name;
+
+    const result = await dbQuery(`
+      INSERT INTO messages (
+        sender_id,
+        receiver_id,
+        message,
+        created_at,
+        is_read
+      ) VALUES (
+        'manager_' || $1,
+        $2 || '_' || $3,
+        $4,
+        NOW(),
+        false
+      ) RETURNING *
+    `, [managerId, role, receiverId, message]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: {
+          ...result.rows[0],
+          is_own: true,
+          sender_name: managerName || 'Manager',
+          status: 'sent'
+        }
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('Error sending message:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send message',
+      error: error.message
+    });
+  }
+});
 // ==================== EXPORT ROUTER ====================
 export default router;
