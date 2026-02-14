@@ -417,6 +417,8 @@ router.get('/bills', async (req: any, res) => {
   }
 });
 
+// backend/src/routes/ownerRoutes.ts - FIXED payments endpoint
+
 // ============ PAYMENTS ROUTES ============
 // GET /api/owner/payments?month=2025-01-01
 router.get('/payments', async (req: any, res) => {
@@ -433,137 +435,80 @@ router.get('/payments', async (req: any, res) => {
 
     console.log(`Owner ${ownerId}: Fetching payments for month: ${month}`);
 
-    // Try to get real data
-    try {
-      const apartmentsQuery = `
-        SELECT 
-          a.id,
-          a.apartment_number,
-          a.floor,
-          a.rent_amount,
-          r.id as renter_id,
-          r.name as renter_name,
-          r.email as renter_email,
-          r.phone as renter_phone,
-          p.id as payment_id,
-          p.amount,
-          p.status as payment_status,
-          p.paid_at,
-          p.payment_method,
-          p.transaction_id,
-          pc.status as confirmation_status,
-          pc.verified_at
-        FROM apartments a
-        LEFT JOIN renters r ON a.current_renter_id = r.id
-        LEFT JOIN payments p ON p.apartment_id = a.id 
-          AND p.month = $2::date
-        LEFT JOIN payment_confirmations pc ON pc.payment_id = p.id
-        JOIN buildings b ON a.building_id = b.id
-        WHERE b.owner_id = $1
-          AND a.status = 'occupied'
-        ORDER BY a.apartment_number;
-      `;
+    // Get ALL payment data including verification status
+    const query = `
+      SELECT 
+        a.id as apartment_id,
+        a.apartment_number,
+        a.floor,
+        a.rent_amount,
+        r.id as renter_id,
+        r.name as renter_name,
+        r.email as renter_email,
+        r.phone as renter_phone,
+        p.id as payment_id,
+        p.amount as paid_amount,
+        p.status as payment_status,
+        p.paid_at,
+        p.payment_method,
+        p.transaction_id,
+        pc.status as confirmation_status,
+        pc.verified_at,
+        pc.notes as verification_notes,
+        CASE 
+          WHEN p.id IS NULL THEN 'no_payment'
+          WHEN pc.status = 'verified' THEN 'verified'
+          WHEN pc.status = 'rejected' THEN 'rejected'
+          WHEN p.status = 'paid' AND (pc.status IS NULL OR pc.status = 'pending_review') THEN 'pending_verification'
+          WHEN p.status = 'paid' THEN 'paid_unverified'
+          WHEN p.status = 'pending' THEN 'pending'
+          WHEN p.status = 'overdue' THEN 'overdue'
+          ELSE 'unknown'
+        END as display_status
+      FROM apartments a
+      JOIN buildings b ON a.building_id = b.id
+      LEFT JOIN renters r ON a.current_renter_id = r.id
+      LEFT JOIN payments p ON p.apartment_id = a.id 
+        AND DATE_TRUNC('month', p.month) = DATE_TRUNC('month', $2::date)
+      LEFT JOIN payment_confirmations pc ON pc.payment_id = p.id
+      WHERE b.owner_id = $1
+        AND a.status = 'occupied'
+      ORDER BY a.apartment_number;
+    `;
 
-      const summaryQuery = `
-        SELECT 
-          COUNT(*) as total_apartments,
-          COUNT(CASE WHEN pc.status = 'verified' THEN 1 END) as verified_count,
-          COUNT(CASE WHEN p.status = 'paid' AND (pc.status IS NULL OR pc.status != 'verified') THEN 1 END) as pending_review_count,
-          COUNT(CASE WHEN p.status IS NULL OR p.status = 'pending' THEN 1 END) as unpaid_count,
-          COUNT(CASE WHEN p.status = 'overdue' THEN 1 END) as overdue_count,
-          COALESCE(SUM(a.rent_amount), 0) as total_expected,
-          COALESCE(SUM(CASE WHEN pc.status = 'verified' THEN p.amount ELSE 0 END), 0) as total_collected
-        FROM apartments a
-        JOIN buildings b ON a.building_id = b.id
-        LEFT JOIN payments p ON p.apartment_id = a.id 
-          AND p.month = $2::date
-        LEFT JOIN payment_confirmations pc ON pc.payment_id = p.id
-        WHERE b.owner_id = $1
-          AND a.status = 'occupied';
-      `;
+    const result = await pool.query(query, [ownerId, month]);
 
-      const [apartmentsResult, summaryResult] = await Promise.all([
-        pool.query(apartmentsQuery, [ownerId, month]),
-        pool.query(summaryQuery, [ownerId, month])
-      ]);
+    // Calculate summary with proper status grouping
+    const summary = {
+      total_apartments: result.rows.length,
+      verified_count: result.rows.filter(r => r.confirmation_status === 'verified').length,
+      pending_verification_count: result.rows.filter(r => 
+        r.payment_status === 'paid' && 
+        (r.confirmation_status === 'pending_review' || r.confirmation_status === null)
+      ).length,
+      pending_payment_count: result.rows.filter(r => r.payment_status === 'pending').length,
+      overdue_count: result.rows.filter(r => r.payment_status === 'overdue').length,
+      no_payment_count: result.rows.filter(r => r.payment_id === null).length,
+      total_expected: result.rows.reduce((sum, row) => sum + parseAmount(row.rent_amount), 0),
+      total_collected: result.rows
+        .filter(r => r.confirmation_status === 'verified')
+        .reduce((sum, row) => sum + parseAmount(row.paid_amount), 0),
+      total_pending_verification: result.rows
+        .filter(r => r.payment_status === 'paid' && 
+          (r.confirmation_status === 'pending_review' || r.confirmation_status === null))
+        .reduce((sum, row) => sum + parseAmount(row.paid_amount), 0)
+    };
 
-      const summary = summaryResult.rows[0] || {
-        total_apartments: 0,
-        verified_count: 0,
-        pending_review_count: 0,
-        unpaid_count: 0,
-        overdue_count: 0,
-        total_expected: 0,
-        total_collected: 0
-      };
-
-      const parsedSummary = {
-        total_apartments: parseInt(summary.total_apartments) || 0,
-        verified_count: parseInt(summary.verified_count) || 0,
-        pending_review_count: parseInt(summary.pending_review_count) || 0,
-        unpaid_count: parseInt(summary.unpaid_count) || 0,
-        overdue_count: parseInt(summary.overdue_count) || 0,
-        total_expected: parseAmount(summary.total_expected),
-        total_collected: parseAmount(summary.total_collected)
-      };
-
-      const apartments = apartmentsResult.rows.map(row => ({
+    res.json({
+      success: true,
+      month: month,
+      summary: summary,
+      apartments: result.rows.map(row => ({
         ...row,
         rent_amount: parseAmount(row.rent_amount),
-        amount: parseAmount(row.amount)
-      }));
-
-      return res.json({
-        success: true,
-        month: month,
-        summary: parsedSummary,
-        apartments: apartments
-      });
-      
-    } catch (dbError) {
-      console.log('Database query failed, using mock data');
-      
-      // Return mock data
-      const mockApartments = [
-        {
-          id: 1,
-          apartment_number: "101",
-          floor: "1",
-          rent_amount: 5000,
-          renter_id: 1,
-          renter_name: "John Doe",
-          payment_status: "paid",
-          confirmation_status: "verified",
-          paid_at: new Date().toISOString()
-        },
-        {
-          id: 2,
-          apartment_number: "102",
-          floor: "1",
-          rent_amount: 5500,
-          renter_id: 2,
-          renter_name: "Sarah Smith",
-          payment_status: "pending",
-          confirmation_status: "pending_review",
-          paid_at: null
-        }
-      ];
-
-      return res.json({
-        success: true,
-        month: month,
-        summary: {
-          total_apartments: 2,
-          verified_count: 1,
-          pending_review_count: 1,
-          unpaid_count: 0,
-          overdue_count: 0,
-          total_expected: 10500,
-          total_collected: 5000
-        },
-        apartments: mockApartments
-      });
-    }
+        paid_amount: parseAmount(row.paid_amount)
+      }))
+    });
 
   } catch (error) {
     console.error('❌ Error fetching owner payments:', error);
@@ -580,49 +525,23 @@ router.get('/payments/months', async (req: any, res) => {
   try {
     const ownerId = req.user?.ownerId || 1;
     
-    try {
-      const query = `
-        SELECT DISTINCT 
-          TO_CHAR(p.month, 'Month YYYY') as display_month,
-          p.month as value
-        FROM payments p
-        JOIN apartments a ON p.apartment_id = a.id
-        JOIN buildings b ON a.building_id = b.id
-        WHERE b.owner_id = $1
-        ORDER BY p.month DESC
-        LIMIT 12;
-      `;
-      
-      const result = await pool.query(query, [ownerId]);
-      
-      if (result.rows.length > 0) {
-        return res.json({
-          success: true,
-          months: result.rows
-        });
-      }
-    } catch (dbError) {
-      console.log('Using mock months data');
-    }
+    const query = `
+      SELECT DISTINCT 
+        TO_CHAR(p.month, 'Month YYYY') as display_month,
+        p.month as value
+      FROM payments p
+      JOIN apartments a ON p.apartment_id = a.id
+      JOIN buildings b ON a.building_id = b.id
+      WHERE b.owner_id = $1
+      ORDER BY p.month DESC
+      LIMIT 12;
+    `;
     
-    // Return mock months
-    const months = [];
-    const currentDate = new Date();
-    for (let i = 0; i < 6; i++) {
-      const date = new Date(currentDate);
-      date.setMonth(currentDate.getMonth() - i);
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      
-      months.push({
-        display_month: date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-        value: `${year}-${month}-01`
-      });
-    }
+    const result = await pool.query(query, [ownerId]);
     
     res.json({
       success: true,
-      months: months
+      months: result.rows
     });
     
   } catch (error) {

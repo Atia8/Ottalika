@@ -41,10 +41,18 @@ interface Payment {
   confirmation_status: string;
 }
 
+interface MonthlySummary {
+  month: string;
+  totalBills: number;
+  paidBills: number;
+  unpaidBills: number;
+  totalAmount: number;
+  paidAmount: number;
+  unpaidAmount: number;
+  bills: Bill[];
+}
+
 export function OwnerManagerStatus() {
-  const currentMonth = "January 2025";
-  const today = new Date("2025-01-25");
-  
   const [currentTab, setCurrentTab] = useState<"pending" | "upcoming" | "summary">("pending");
   const [bills, setBills] = useState<Bill[]>([]);
   const [utilityBills, setUtilityBills] = useState<Bill[]>([]);
@@ -52,6 +60,8 @@ export function OwnerManagerStatus() {
   const [ownerExpenses, setOwnerExpenses] = useState<Bill[]>([]);
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [monthlySummaries, setMonthlySummaries] = useState<MonthlySummary[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -78,21 +88,21 @@ export function OwnerManagerStatus() {
       const billsResult = await billsResponse.json();
       
       if (billsResult.success) {
-        // Filter bills by type
-        const utility = billsResult.data.bills.filter((b: Bill) => 
-          b.bill_source === 'utility'
-        );
-        const manager = billsResult.data.bills.filter((b: Bill) => 
-          b.bill_source === 'manager'
-        );
-        const expenses = billsResult.data.bills.filter((b: Bill) => 
-          b.bill_source === 'expense'
-        );
+        // TRUST THE DATABASE - use the status as is from the backend
+        const billsData = billsResult.data.bills;
         
-        setBills(billsResult.data.bills);
+        // Filter bills by type
+        const utility = billsData.filter((b: Bill) => b.bill_source === 'utility');
+        const manager = billsData.filter((b: Bill) => b.bill_source === 'manager');
+        const expenses = billsData.filter((b: Bill) => b.bill_source === 'expense');
+        
+        setBills(billsData);
         setUtilityBills(utility);
         setManagerBills(manager);
         setOwnerExpenses(expenses);
+        
+        // Generate monthly summaries from ACTUAL data
+        generateMonthlySummaries(billsData);
       } else {
         throw new Error(billsResult.message || 'Failed to fetch bills');
       }
@@ -131,7 +141,7 @@ export function OwnerManagerStatus() {
       console.error('Error fetching data:', err);
       setError(err.message || 'Failed to load data');
       
-      // Set mock data as fallback
+      // Set mock data as fallback - with REALISTIC data
       const mockBills: Bill[] = [
         {
           id: 1,
@@ -190,6 +200,42 @@ export function OwnerManagerStatus() {
           due_date: '2025-01-15',
           status: 'paid',
           paid_date: '2025-01-15'
+        },
+        {
+          id: 6,
+          bill_source: 'utility',
+          bill_type: 'Building Maintenance',
+          title: 'Building Maintenance',
+          building_name: 'Main Building',
+          amount: 2000,
+          due_date: '2025-02-10',
+          status: 'upcoming',
+          paid_date: null,
+          provider: 'Building Management'
+        },
+        {
+          id: 7,
+          bill_source: 'utility',
+          bill_type: 'Internet',
+          title: 'Internet Bill',
+          building_name: 'Main Building',
+          amount: 3000,
+          due_date: '2026-01-05',
+          status: 'upcoming',
+          paid_date: null,
+          provider: 'Bdcom Online'
+        },
+        {
+          id: 8,
+          bill_source: 'utility',
+          bill_type: 'Security',
+          title: 'Security Bill',
+          building_name: 'All Buildings',
+          amount: 8000,
+          due_date: '2025-12-15',
+          status: 'paid',
+          paid_date: '2025-12-12',
+          provider: 'SecureGuard Ltd.'
         }
       ];
       
@@ -197,6 +243,9 @@ export function OwnerManagerStatus() {
       setUtilityBills(mockBills.filter(b => b.bill_source === 'utility'));
       setManagerBills(mockBills.filter(b => b.bill_source === 'manager'));
       setOwnerExpenses(mockBills.filter(b => b.bill_source === 'expense'));
+      
+      // Generate summaries from mock data
+      generateMonthlySummaries(mockBills);
       
       setComplaints([
         {
@@ -228,10 +277,82 @@ export function OwnerManagerStatus() {
     }
   };
 
+  // Generate monthly summaries from actual bill data
+  // Fix the generateMonthlySummaries function
+const generateMonthlySummaries = (billsData: Bill[]) => {
+  // Group bills by month (using due_date)
+  const billsByMonth = billsData.reduce((acc: Record<string, Bill[]>, bill) => {
+    const date = new Date(bill.due_date);
+    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    const monthDisplay = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    
+    if (!acc[monthKey]) {
+      acc[monthKey] = [];
+    }
+    acc[monthKey].push(bill);
+    return acc;
+  }, {});
+
+  // Create summary for each month
+  const summaries: MonthlySummary[] = Object.entries(billsByMonth).map(([monthKey, monthBills]) => {
+    const paidBills = monthBills.filter(b => b.status === 'paid');
+    const unpaidBills = monthBills.filter(b => b.status !== 'paid');
+    
+    // FIX: Ensure amounts are treated as numbers, not strings
+    const totalAmount = monthBills.reduce((sum, b) => {
+      const amount = typeof b.amount === 'string' ? parseFloat(b.amount) : b.amount;
+      return sum + (isNaN(amount) ? 0 : amount);
+    }, 0);
+    
+    const paidAmount = paidBills.reduce((sum, b) => {
+      const amount = typeof b.amount === 'string' ? parseFloat(b.amount) : b.amount;
+      return sum + (isNaN(amount) ? 0 : amount);
+    }, 0);
+    
+    const unpaidAmount = unpaidBills.reduce((sum, b) => {
+      const amount = typeof b.amount === 'string' ? parseFloat(b.amount) : b.amount;
+      return sum + (isNaN(amount) ? 0 : amount);
+    }, 0);
+    
+    // Get display month from first bill
+    const displayMonth = monthBills.length > 0 
+      ? new Date(monthBills[0].due_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+      : monthKey;
+
+    return {
+      month: displayMonth,
+      monthKey,
+      totalBills: monthBills.length,
+      paidBills: paidBills.length,
+      unpaidBills: unpaidBills.length,
+      totalAmount,
+      paidAmount,
+      unpaidAmount,
+      bills: monthBills.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
+    };
+  });
+
+  // Sort by date (newest first)
+  summaries.sort((a, b) => {
+    const dateA = new Date(a.bills[0]?.due_date || 0);
+    const dateB = new Date(b.bills[0]?.due_date || 0);
+    return dateB.getTime() - dateA.getTime();
+  });
+
+  setMonthlySummaries(summaries);
+  
+  // Set default selected month to the most recent
+  if (summaries.length > 0 && !selectedMonth) {
+    setSelectedMonth(summaries[0].month);
+  }
+};
   useEffect(() => {
     setLoading(true);
     fetchData();
   }, []);
+
+  // Get current selected month's data
+  const currentMonthData = monthlySummaries.find(s => s.month === selectedMonth) || monthlySummaries[0];
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -254,34 +375,14 @@ export function OwnerManagerStatus() {
     </div>
   );
 
-  // Calculate statistics
+  // Calculate statistics - USE DATABASE STATUS
   const totalBills = bills.length;
-  const paidBills = bills.filter(b => b.status === "paid" || b.paid_date !== null).length;
+  const paidBills = bills.filter(b => b.status === "paid").length;
   
-  const upcomingBills = bills.filter(bill => {
-    const dueDate = new Date(bill.due_date);
-    return dueDate > today && bill.status !== 'paid';
-  });
-
-  const pendingBills = bills.filter(b => b.status === "pending" && !b.paid_date);
-  const overdueBills = bills.filter(bill => {
-    const dueDate = new Date(bill.due_date);
-    return (bill.status === "pending" || bill.status === "overdue") && dueDate < today;
-  });
-
-  // Current month bills
-  const currentMonthBills = bills.filter(bill => {
-    try {
-      const billDate = new Date(bill.due_date);
-      const billMonth = billDate.toLocaleString('default', { month: 'long', year: 'numeric' });
-      return billMonth === currentMonth;
-    } catch {
-      return false;
-    }
-  });
-
-  const currentMonthPaidBills = currentMonthBills.filter(bill => bill.status === "paid" || bill.paid_date !== null);
-  const currentMonthUnpaidBills = currentMonthBills.filter(bill => bill.status !== "paid" && !bill.paid_date);
+  // Use the status from database
+  const upcomingBills = bills.filter(b => b.status === "upcoming");
+  const pendingBills = bills.filter(b => b.status === "pending");
+  const overdueBills = bills.filter(b => b.status === "overdue");
 
   // Complaints status
   const totalComplaints = complaints.length;
@@ -484,10 +585,9 @@ export function OwnerManagerStatus() {
           {/* Pending/Overdue Bills Tab */}
           {currentTab === "pending" && (
             <div className="space-y-3">
-              {[...overdueBills, ...pendingBills.filter(b => !overdueBills.includes(b))].length > 0 ? (
-                [...overdueBills, ...pendingBills.filter(b => !overdueBills.includes(b))].map((bill) => {
-                  const dueDate = new Date(bill.due_date);
-                  const isOverdue = dueDate < today;
+              {[...overdueBills, ...pendingBills].length > 0 ? (
+                [...overdueBills, ...pendingBills].map((bill) => {
+                  const isOverdue = bill.status === 'overdue';
                   
                   return (
                     <div 
@@ -506,7 +606,7 @@ export function OwnerManagerStatus() {
                           <p className="text-gray-900 capitalize font-medium">{bill.title}</p>
                         </div>
                         <p className="text-gray-600 text-sm mt-1">
-                          {bill.building_name} • Due: {dueDate.toLocaleDateString()}
+                          {bill.building_name} • Due: {new Date(bill.due_date).toLocaleDateString()}
                         </p>
                         {bill.provider && (
                           <p className="text-xs text-gray-500 mt-1">{bill.provider}</p>
@@ -535,7 +635,7 @@ export function OwnerManagerStatus() {
             <div className="space-y-3">
               {upcomingBills.length > 0 ? (
                 upcomingBills.map((bill) => {
-                  const isPaid = bill.status === "paid" || bill.paid_date !== null;
+                  const isPaid = bill.status === "paid";
                   return (
                     <div
                       key={bill.id}
@@ -577,87 +677,157 @@ export function OwnerManagerStatus() {
             </div>
           )}
 
-          {/* Monthly Summary Tab */}
+          {/* Monthly Summary Tab - NOW USING REAL DATA */}
           {currentTab === "summary" && (
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-4 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border border-indigo-200">
-                  <p className="text-indigo-700">Total Bills</p>
-                  <p className="text-indigo-900 mt-1 text-2xl font-bold">{currentMonthBills.length}</p>
-                </div>
-                <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border border-green-200">
-                  <p className="text-green-700">Paid Bills</p>
-                  <div className="flex items-center justify-between mt-1">
-                    <p className="text-green-900 text-2xl font-bold">{currentMonthPaidBills.length}</p>
-                    <p className="text-green-700 font-medium">
-                      ৳{currentMonthPaidBills.reduce((sum, bill) => sum + bill.amount, 0).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-                <div className="p-4 bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg border border-orange-200">
-                  <p className="text-orange-700">Unpaid Bills</p>
-                  <div className="flex items-center justify-between mt-1">
-                    <p className="text-orange-900 text-2xl font-bold">{currentMonthUnpaidBills.length}</p>
-                    <p className="text-orange-700 font-medium">
-                      ৳{currentMonthUnpaidBills.reduce((sum, bill) => sum + bill.amount, 0).toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {currentMonthPaidBills.length > 0 && (
-                <div>
-                  <h3 className="text-gray-900 font-semibold mb-3">✓ Paid Bills ({currentMonthPaidBills.length})</h3>
-                  <div className="space-y-2">
-                    {currentMonthPaidBills.map((bill) => (
-                      <div key={bill.id} className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs px-2 py-1 bg-white rounded-full text-gray-600">
-                              {bill.bill_source}
-                            </span>
-                            <p className="text-gray-900 capitalize">{bill.title}</p>
-                            <CheckCircle className="w-4 h-4 text-green-600" />
-                          </div>
-                          <p className="text-gray-600 text-sm mt-1">{bill.building_name}</p>
-                          {bill.paid_date && (
-                            <p className="text-gray-600 text-sm">Paid on: {new Date(bill.paid_date).toLocaleDateString()}</p>
-                          )}
-                        </div>
-                        <p className="text-gray-900 font-semibold">৳{bill.amount.toLocaleString()}</p>
-                      </div>
-                    ))}
-                  </div>
+              {/* Month Selector */}
+              {monthlySummaries.length > 1 && (
+                <div className="flex items-center gap-2 overflow-x-auto pb-2">
+                  {monthlySummaries.map((summary) => (
+                    <button
+                      key={summary.month}
+                      onClick={() => setSelectedMonth(summary.month)}
+                      className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors ${
+                        selectedMonth === summary.month
+                          ? "bg-indigo-500 text-white"
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      }`}
+                    >
+                      {summary.month}
+                    </button>
+                  ))}
                 </div>
               )}
 
-              {currentMonthUnpaidBills.length > 0 && (
-                <div>
-                  <h3 className="text-gray-900 font-semibold mb-3">⏳ Unpaid Bills ({currentMonthUnpaidBills.length})</h3>
-                  <div className="space-y-2">
-                    {currentMonthUnpaidBills.map((bill) => (
-                      <div key={bill.id} className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs px-2 py-1 bg-white rounded-full text-gray-600">
-                              {bill.bill_source}
-                            </span>
-                            <p className="text-gray-900 capitalize">{bill.title}</p>
-                          </div>
-                          <p className="text-gray-600 text-sm mt-1">{bill.building_name}</p>
-                          <p className="text-gray-600 text-sm">Due: {new Date(bill.due_date).toLocaleDateString()}</p>
-                        </div>
-                        <p className="text-gray-900 font-semibold">৳{bill.amount.toLocaleString()}</p>
+              {currentMonthData && (
+                <>
+        {/* Summary Cards for Selected Month */}
+<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+  <div className="p-4 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border border-indigo-200">
+    <p className="text-indigo-700">Total Bills</p>
+    <p className="text-indigo-900 mt-1 text-2xl font-bold">{currentMonthData.totalBills}</p>
+    <p className="text-indigo-600 text-sm mt-1">
+      ৳{currentMonthData.totalAmount.toLocaleString('en-BD', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+    </p>
+  </div>
+  <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border border-green-200">
+    <p className="text-green-700">Paid Bills</p>
+    <div className="flex items-center justify-between mt-1">
+      <p className="text-green-900 text-2xl font-bold">{currentMonthData.paidBills}</p>
+      <p className="text-green-700 font-medium">
+        ৳{currentMonthData.paidAmount.toLocaleString('en-BD', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+      </p>
+    </div>
+    <p className="text-green-600 text-sm mt-1">
+      {currentMonthData.totalBills > 0 
+        ? Math.round((currentMonthData.paidBills / currentMonthData.totalBills) * 100)
+        : 0}% of bills
+    </p>
+  </div>
+  <div className="p-4 bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg border border-orange-200">
+    <p className="text-orange-700">Unpaid Bills</p>
+    <div className="flex items-center justify-between mt-1">
+      <p className="text-orange-900 text-2xl font-bold">{currentMonthData.unpaidBills}</p>
+      <p className="text-orange-700 font-medium">
+        ৳{currentMonthData.unpaidAmount.toLocaleString('en-BD', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+      </p>
+    </div>
+    <p className="text-orange-600 text-sm mt-1">
+      {currentMonthData.totalBills > 0 
+        ? Math.round((currentMonthData.unpaidBills / currentMonthData.totalBills) * 100)
+        : 0}% of bills
+    </p>
+  </div>
+</div>
+
+                  {/* Paid Bills List */}
+                  {currentMonthData.paidBills > 0 && (
+                    <div>
+                      <h3 className="text-gray-900 font-semibold mb-3 flex items-center gap-2">
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                        Paid Bills ({currentMonthData.paidBills})
+                      </h3>
+                      <div className="space-y-2">
+                        {currentMonthData.bills
+                          .filter(bill => bill.status === 'paid')
+                          .map((bill) => (
+                            <div key={bill.id} className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs px-2 py-1 bg-white rounded-full text-gray-600">
+                                    {bill.bill_source}
+                                  </span>
+                                  <p className="text-gray-900 capitalize font-medium">{bill.title}</p>
+                                </div>
+                                <p className="text-gray-600 text-sm mt-1">{bill.building_name}</p>
+                                {bill.paid_date && (
+                                  <p className="text-gray-600 text-sm">
+                                    Paid on: {new Date(bill.paid_date).toLocaleDateString()}
+                                  </p>
+                                )}
+                                {bill.provider && (
+                                  <p className="text-xs text-gray-500 mt-1">{bill.provider}</p>
+                                )}
+                              </div>
+                              <p className="text-gray-900 font-semibold">৳{bill.amount.toLocaleString()}</p>
+                            </div>
+                          ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+                  )}
+
+                  {/* Unpaid Bills List */}
+                  {currentMonthData.unpaidBills > 0 && (
+                    <div>
+                      <h3 className="text-gray-900 font-semibold mb-3 flex items-center gap-2">
+                        <Clock className="w-5 h-5 text-orange-600" />
+                        Unpaid Bills ({currentMonthData.unpaidBills})
+                      </h3>
+                      <div className="space-y-2">
+                        {currentMonthData.bills
+                          .filter(bill => bill.status !== 'paid')
+                          .map((bill) => (
+                            <div key={bill.id} className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs px-2 py-1 bg-white rounded-full text-gray-600">
+                                    {bill.bill_source}
+                                  </span>
+                                  <p className="text-gray-900 capitalize font-medium">{bill.title}</p>
+                                  {bill.status === 'overdue' && (
+                                    <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">
+                                      Overdue
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-gray-600 text-sm mt-1">{bill.building_name}</p>
+                                <p className="text-gray-600 text-sm">
+                                  Due: {new Date(bill.due_date).toLocaleDateString()}
+                                </p>
+                                {bill.provider && (
+                                  <p className="text-xs text-gray-500 mt-1">{bill.provider}</p>
+                                )}
+                              </div>
+                              <p className="text-gray-900 font-semibold">৳{bill.amount.toLocaleString()}</p>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {currentMonthData.totalBills === 0 && (
+                    <div className="text-center py-8">
+                      <FileText className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                      <p className="text-gray-600">No bills for {currentMonthData.month}</p>
+                    </div>
+                  )}
+                </>
               )}
 
-              {currentMonthBills.length === 0 && (
+              {monthlySummaries.length === 0 && (
                 <div className="text-center py-8">
                   <FileText className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">No bills for {currentMonth}</p>
+                  <p className="text-gray-600">No bills found</p>
                 </div>
               )}
             </div>

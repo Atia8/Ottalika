@@ -113,62 +113,59 @@ const ManagerBills = () => {
     }
   };
 
-  // In ManagerBills.tsx, update the status logic in fetchUtilityBills
-
-const fetchUtilityBills = async () => {
-  try {
-    setLoading(true);
-    const token = localStorage.getItem('token');
-    
-    const response = await axios.get(`${API_URL}/manager/bills/utility`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    
-    if (response.data.success) {
-      const billsData = response.data.data.bills || [];
+  const fetchUtilityBills = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('token');
       
-      // Normalize bills and ensure correct status based on due date
-      const normalizedBills = billsData.map((bill: any) => {
-        // Calculate correct status based on due date and paid status
-        let status = bill.status;
-        const dueDate = new Date(bill.due_date);
-        const today = new Date();
-        
-        if (bill.paid_date) {
-          status = 'paid';
-        } else if (dueDate < today && status !== 'paid') {
-          status = 'overdue';
-        } else if (dueDate > today && status === 'paid') {
-          status = 'upcoming'; // Fix incorrectly marked paid
-        }
-        
-        return {
-          ...bill,
-          title: bill.title || bill.type || 'Utility Bill',
-          status: status
-        };
+      const response = await axios.get(`${API_URL}/manager/bills/utility`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
       
-      setUtilityBills(normalizedBills);
-      
-      // Calculate stats based on corrected status
-      const total = normalizedBills.length;
-      const upcoming = normalizedBills.filter((b: UtilityBill) => b.status === 'upcoming').length;
-      const pending = normalizedBills.filter((b: UtilityBill) => b.status === 'pending').length;
-      const paid = normalizedBills.filter((b: UtilityBill) => b.status === 'paid').length;
-      const overdue = normalizedBills.filter((b: UtilityBill) => b.status === 'overdue').length;
-      const totalAmount = normalizedBills.reduce((sum: number, bill: UtilityBill) => 
-        sum + (bill.amount || 0), 0);
-      
-      setStats({ total, upcoming, pending, paid, overdue, totalAmount });
-    }
-  else {
+      if (response.data.success) {
+        const billsData = response.data.data.bills || [];
+        
+        // Normalize bills and ensure correct status based on due date
+        const normalizedBills = billsData.map((bill: any) => {
+          // Calculate correct status based on due date and paid status
+          let status = bill.status;
+          const dueDate = new Date(bill.due_date);
+          const today = new Date();
+          
+          if (bill.paid_date) {
+            status = 'paid';
+          } else if (dueDate < today && status !== 'paid') {
+            status = 'overdue';
+          } else if (dueDate > today && status === 'paid') {
+            status = 'upcoming'; // Fix incorrectly marked paid
+          }
+          
+          return {
+            ...bill,
+            title: bill.title || bill.type || 'Utility Bill',
+            status: status
+          };
+        });
+        
+        setUtilityBills(normalizedBills);
+        
+        // Calculate stats based on corrected status
+        const total = normalizedBills.length;
+        const upcoming = normalizedBills.filter((b: UtilityBill) => b.status === 'upcoming').length;
+        const pending = normalizedBills.filter((b: UtilityBill) => b.status === 'pending').length;
+        const paid = normalizedBills.filter((b: UtilityBill) => b.status === 'paid').length;
+        const overdue = normalizedBills.filter((b: UtilityBill) => b.status === 'overdue').length;
+        const totalAmount = normalizedBills.reduce((sum: number, bill: UtilityBill) => 
+          sum + (bill.amount || 0), 0);
+        
+        setStats({ total, upcoming, pending, paid, overdue, totalAmount });
+      } else {
         toast.error('Failed to fetch utility bills');
       }
     } catch (error: any) {
       console.error('Failed to fetch utility bills:', error);
       
-      // Mock data for demo
+      // Mock data for demo - FIXED AMOUNTS
       const mockBills = [
         {
           id: 1,
@@ -176,7 +173,7 @@ const fetchUtilityBills = async () => {
           title: 'Building Maintenance',
           building_name: 'Main Building',
           building_id: 1,
-          amount: 2000,
+          amount: 2000.00,
           due_date: '2025-02-10',
           status: 'upcoming',
           provider: 'Building Management',
@@ -188,7 +185,7 @@ const fetchUtilityBills = async () => {
           title: 'Gas Bill',
           building_name: 'Main Building',
           building_id: 1,
-          amount: 4000,
+          amount: 4000.00,
           due_date: '2025-11-30',
           status: 'upcoming',
           provider: 'Titas Gas',
@@ -200,7 +197,7 @@ const fetchUtilityBills = async () => {
           title: 'Electricity Bill',
           building_name: 'Green Valley',
           building_id: 2,
-          amount: 15000,
+          amount: 15000.00,
           due_date: '2025-12-05',
           status: 'paid',
           provider: 'National Grid',
@@ -212,7 +209,7 @@ const fetchUtilityBills = async () => {
           title: 'Water Bill',
           building_name: 'Main Building',
           building_id: 1,
-          amount: 6000,
+          amount: 6000.00,
           due_date: '2025-12-07',
           status: 'paid',
           provider: 'WASA',
@@ -224,7 +221,7 @@ const fetchUtilityBills = async () => {
           title: 'Maintenance Fee',
           building_name: 'All Buildings',
           building_id: 0,
-          amount: 10000,
+          amount: 10000.00,
           due_date: '2025-12-10',
           status: 'paid',
           provider: 'Building Management',
@@ -236,7 +233,7 @@ const fetchUtilityBills = async () => {
           title: 'Security Bill',
           building_name: 'All Buildings',
           building_id: 0,
-          amount: 8000,
+          amount: 8000.00,
           due_date: '2025-12-15',
           status: 'paid',
           provider: 'SecureGuard Ltd.',
@@ -248,7 +245,7 @@ const fetchUtilityBills = async () => {
           title: 'Internet Bill',
           building_name: 'Main Building',
           building_id: 1,
-          amount: 3000,
+          amount: 3000.00,
           due_date: '2026-01-05',
           status: 'upcoming',
           provider: 'Bdcom Online'
@@ -259,7 +256,7 @@ const fetchUtilityBills = async () => {
           title: 'Garbage Bill',
           building_name: 'All Buildings',
           building_id: 0,
-          amount: 2500,
+          amount: 2500.00,
           due_date: '2026-01-10',
           status: 'upcoming',
           provider: 'City Corporation'
@@ -282,12 +279,30 @@ const fetchUtilityBills = async () => {
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return `৳${amount.toLocaleString('en-BD', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    })}`;
-  };
+ // FIXED formatCurrency function - handles all data types
+const formatCurrency = (amount: any) => {
+  // Handle undefined, null, or invalid values
+  if (amount === undefined || amount === null) return '৳0.00';
+  
+  // Convert to number if it's a string
+  let numAmount: number;
+  
+  if (typeof amount === 'string') {
+    // Remove any non-numeric characters except decimal point
+    const cleaned = amount.replace(/[^\d.-]/g, '');
+    numAmount = parseFloat(cleaned);
+  } else if (typeof amount === 'number') {
+    numAmount = amount;
+  } else {
+    return '৳0.00';
+  }
+  
+  // Check if conversion resulted in a valid number
+  if (isNaN(numAmount)) return '৳0.00';
+  
+  // Format with 2 decimal places and comma separators
+  return `৳${numAmount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
+};
 
   const handleMarkAsPaid = (bill: UtilityBill) => {
     setSelectedBill(bill);
@@ -781,6 +796,7 @@ const fetchUtilityBills = async () => {
                     <label className="block text-sm font-medium text-slate-700 mb-2">Amount (৳) *</label>
                     <input
                       type="number"
+                      step="0.01"
                       value={newBill.amount}
                       onChange={(e) => setNewBill({...newBill, amount: e.target.value})}
                       className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
@@ -900,6 +916,7 @@ const fetchUtilityBills = async () => {
                   <label className="block text-sm font-medium text-slate-700 mb-2">Paid Amount (৳)</label>
                   <input
                     type="number"
+                    step="0.01"
                     value={payData.paid_amount}
                     onChange={(e) => setPayData({...payData, paid_amount: e.target.value})}
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"

@@ -19,12 +19,8 @@ import {
   FaMoneyBillWave,
   FaFileContract,
   FaBuilding,
-  FaCreditCard,
-  FaHistory,
   FaSync,
   FaPrint,
-  FaEnvelopeOpenText,
-  FaBell,
   FaExclamationTriangle
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
@@ -47,29 +43,14 @@ interface Renter {
   building: string;
   building_id?: number;
   floor?: number;
-  status: 'active' | 'pending' | 'inactive' | 'overdue';
-  rentPaid: boolean;
+  status: 'active' | 'pending' | 'inactive';
   rentAmount: number;
   leaseStart: string;
   leaseEnd: string;
   documents: string[];
-  payment_status?: string;
-  apartment_status?: string;
-  last_payment_date?: string;
-  last_payment_amount?: number;
-  payment_history?: PaymentHistory[];
   user_id?: number;
   created_at?: string;
   updated_at?: string;
-}
-
-interface PaymentHistory {
-  id: number;
-  month: string;
-  amount: number;
-  status: string;
-  paid_at: string | null;
-  payment_method: string | null;
 }
 
 interface Building {
@@ -90,14 +71,9 @@ interface RenterStats {
   total: number;
   active: number;
   pending: number;
-  overdue: number;
   inactive: number;
-  totalRent: number;
-  collectedRent: number;
-  pendingRent: number;
-  overdueRent: number;
   occupancyRate: number;
-  collectionRate: number;
+  totalMonthlyRent: number;
 }
 
 const Renters = () => {
@@ -111,25 +87,15 @@ const Renters = () => {
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [availableApartments, setAvailableApartments] = useState<Apartment[]>([]);
-  const [paymentAmount, setPaymentAmount] = useState<number>(0);
-  const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
-  const [paymentMonth, setPaymentMonth] = useState('');
   const [stats, setStats] = useState<RenterStats>({
     total: 0,
     active: 0,
     pending: 0,
-    overdue: 0,
     inactive: 0,
-    totalRent: 0,
-    collectedRent: 0,
-    pendingRent: 0,
-    overdueRent: 0,
     occupancyRate: 0,
-    collectionRate: 0
+    totalMonthlyRent: 0
   });
 
   const [approveData, setApproveData] = useState({
@@ -185,10 +151,7 @@ const Renters = () => {
           ...renter,
           rentAmount: typeof renter.rentAmount === 'string' 
             ? parseFloat(renter.rentAmount) 
-            : (renter.rentAmount || 0),
-          last_payment_amount: typeof renter.last_payment_amount === 'string'
-            ? parseFloat(renter.last_payment_amount)
-            : (renter.last_payment_amount || 0)
+            : (renter.rentAmount || 0)
         }));
         
         setRenters(rentersData);
@@ -234,53 +197,13 @@ const Renters = () => {
     }
   };
 
-  const fetchRenterPaymentHistory = async (renterId: number) => {
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/manager/renters/${renterId}/payments`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (response.data.success) {
-        setSelectedRenter(prev => prev ? {
-          ...prev,
-          payment_history: response.data.data.payments
-        } : null);
-        setShowHistoryModal(true);
-      }
-    } catch (error) {
-      console.error('Failed to fetch payment history:', error);
-      toast.error('Failed to load payment history');
-    }
-  };
-
   const calculateStats = (rentersData: Renter[]) => {
     const active = rentersData.filter(r => r.status === 'active').length;
     const pending = rentersData.filter(r => r.status === 'pending').length;
-    const overdue = rentersData.filter(r => r.status === 'overdue').length;
     const inactive = rentersData.filter(r => r.status === 'inactive').length;
     
-    const totalRent = rentersData.reduce((sum, r) => {
-      const amount = typeof r.rentAmount === 'string' ? parseFloat(r.rentAmount) : (r.rentAmount || 0);
-      return sum + (isNaN(amount) ? 0 : amount);
-    }, 0);
-    
-    const collectedRent = rentersData
-      .filter(r => r.rentPaid)
-      .reduce((sum, r) => {
-        const amount = typeof r.rentAmount === 'string' ? parseFloat(r.rentAmount) : (r.rentAmount || 0);
-        return sum + (isNaN(amount) ? 0 : amount);
-      }, 0);
-      
-    const pendingRent = rentersData
-      .filter(r => !r.rentPaid && r.status === 'active')
-      .reduce((sum, r) => {
-        const amount = typeof r.rentAmount === 'string' ? parseFloat(r.rentAmount) : (r.rentAmount || 0);
-        return sum + (isNaN(amount) ? 0 : amount);
-      }, 0);
-      
-    const overdueRent = rentersData
-      .filter(r => r.status === 'overdue')
+    const totalMonthlyRent = rentersData
+      .filter(r => r.status === 'active')
       .reduce((sum, r) => {
         const amount = typeof r.rentAmount === 'string' ? parseFloat(r.rentAmount) : (r.rentAmount || 0);
         return sum + (isNaN(amount) ? 0 : amount);
@@ -289,22 +212,14 @@ const Renters = () => {
     const occupancyRate = rentersData.length > 0 
       ? Math.round((active / rentersData.length) * 100) 
       : 0;
-    const collectionRate = totalRent > 0 
-      ? Math.round((collectedRent / totalRent) * 100) 
-      : 0;
 
     setStats({
       total: rentersData.length,
       active,
       pending,
-      overdue,
       inactive,
-      totalRent,
-      collectedRent,
-      pendingRent,
-      overdueRent,
       occupancyRate,
-      collectionRate
+      totalMonthlyRent
     });
   };
 
@@ -312,7 +227,6 @@ const Renters = () => {
     { value: 'all', label: 'All Status' },
     { value: 'active', label: 'Active' },
     { value: 'pending', label: 'Pending' },
-    { value: 'overdue', label: 'Overdue' },
     { value: 'inactive', label: 'Inactive' },
   ];
 
@@ -340,10 +254,6 @@ const Renters = () => {
   const handleViewDetails = (renter: Renter) => {
     setSelectedRenter(renter);
     setShowDetailsModal(true);
-  };
-
-  const handleViewPaymentHistory = (renter: Renter) => {
-    fetchRenterPaymentHistory(renter.id);
   };
 
   const handleAddRenter = () => {
@@ -379,12 +289,25 @@ const Renters = () => {
     setShowApproveModal(true);
   };
 
-  const handleRecordPayment = (renter: Renter) => {
-    console.log('Recording payment for renter:', renter);
-    setSelectedRenter(renter);
-    setPaymentAmount(renter.rentAmount);
-    setPaymentMonth(new Date().toISOString().slice(0, 7) + '-01');
-    setShowPaymentModal(true);
+  const handleUpdateStatus = async (renterId: number, newStatus: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.patch(
+        `${API_URL}/manager/renters/${renterId}/status`,
+        { status: newStatus },
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
+      
+      if (response.data.success) {
+        toast.success(`Status updated to ${newStatus}`);
+        fetchRenters();
+      }
+    } catch (error) {
+      console.error('Failed to update status:', error);
+      toast.error('Failed to update status');
+    }
   };
 
   const handleSubmitApproval = async () => {
@@ -399,7 +322,8 @@ const Renters = () => {
           apartment_id: approveData.apartment_id,
           rentAmount: parseFloat(approveData.rentAmount),
           leaseStart: approveData.leaseStart,
-          leaseEnd: approveData.leaseEnd
+          leaseEnd: approveData.leaseEnd,
+          status: 'active'
         },
         {
           headers: { Authorization: `Bearer ${token}` }
@@ -426,7 +350,8 @@ const Renters = () => {
           ...newRenter,
           rentAmount: parseFloat(newRenter.rentAmount),
           apartment_id: parseInt(newRenter.apartment_id),
-          building_id: parseInt(newRenter.building_id)
+          building_id: parseInt(newRenter.building_id),
+          status: 'pending'
         },
         {
           headers: { Authorization: `Bearer ${token}` }
@@ -485,45 +410,6 @@ const Renters = () => {
     }
   };
 
-  const handleSubmitPayment = async () => {
-    if (!selectedRenter) return;
-
-    console.log('Submitting payment with data:', {
-      renter_id: selectedRenter.id,
-      apartment_id: selectedRenter.apartment_id,
-      amount: paymentAmount,
-      month: paymentMonth,
-      payment_method: paymentMethod
-    });
-
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_URL}/manager/payments`,
-        {
-          renter_id: selectedRenter.id,
-          apartment_id: selectedRenter.apartment_id,
-          amount: paymentAmount,
-          month: paymentMonth,
-          payment_method: paymentMethod,
-          transaction_id: `PAY-${Date.now()}`
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-      
-      if (response.data.success) {
-        toast.success('Payment recorded successfully!');
-        setShowPaymentModal(false);
-        fetchRenters();
-      }
-    } catch (error: any) {
-      console.error('Failed to record payment:', error.response?.data || error.message);
-      toast.error(error.response?.data?.message || 'Failed to record payment');
-    }
-  };
-
   const handleDeleteRenter = async (renterId: number) => {
     if (!window.confirm('Are you sure you want to delete this renter?')) return;
 
@@ -543,24 +429,6 @@ const Renters = () => {
     }
   };
 
-  const handleSendReminder = async (renter: Renter) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.post(
-        `${API_URL}/manager/renters/${renter.id}/send-reminder`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-      
-      toast.success(`Payment reminder sent to ${renter.name}`);
-    } catch (error) {
-      console.error('Failed to send reminder:', error);
-      toast.error('Failed to send reminder');
-    }
-  };
-
   const exportToExcel = () => {
     const exportData = filteredRenters.map(r => ({
       Name: r.name,
@@ -568,11 +436,13 @@ const Renters = () => {
       Phone: r.phone,
       Building: r.building,
       Apartment: r.apartment,
-      'Rent Amount': r.rentAmount,
+      'Monthly Rent': r.rentAmount,
       Status: r.status,
-      'Rent Paid': r.rentPaid ? 'Yes' : 'No',
       'Lease Start': new Date(r.leaseStart).toLocaleDateString(),
-      'Lease End': new Date(r.leaseEnd).toLocaleDateString()
+      'Lease End': new Date(r.leaseEnd).toLocaleDateString(),
+      'NID Number': r.nid_number || 'N/A',
+      'Emergency Contact': r.emergency_contact || 'N/A',
+      'Occupation': r.occupation || 'N/A'
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -596,12 +466,11 @@ const Renters = () => {
       r.apartment,
       r.building,
       formatCurrency(r.rentAmount),
-      r.status,
-      r.rentPaid ? 'Yes' : 'No'
+      r.status
     ]);
 
     autoTable(doc, {
-      head: [['Name', 'Apt', 'Building', 'Rent', 'Status', 'Paid']],
+      head: [['Name', 'Apt', 'Building', 'Monthly Rent', 'Status']],
       body: tableData,
       startY: 40,
       styles: { fontSize: 8 },
@@ -616,7 +485,6 @@ const Renters = () => {
     switch (status) {
       case 'active': return 'bg-emerald-100 text-emerald-700 border border-emerald-200';
       case 'pending': return 'bg-amber-100 text-amber-700 border border-amber-200';
-      case 'overdue': return 'bg-rose-100 text-rose-700 border border-rose-200';
       case 'inactive': return 'bg-slate-100 text-slate-700 border border-slate-200';
       default: return 'bg-slate-100 text-slate-700 border border-slate-200';
     }
@@ -626,7 +494,6 @@ const Renters = () => {
     switch (status) {
       case 'active': return <FaCheck className="text-emerald-600" />;
       case 'pending': return <FaTimes className="text-amber-600" />;
-      case 'overdue': return <FaTimes className="text-rose-600" />;
       default: return <FaTimes className="text-slate-600" />;
     }
   };
@@ -637,17 +504,6 @@ const Renters = () => {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0
     })}`;
-  };
-
-  const formatCompactCurrency = (amount: number) => {
-    if (!amount && amount !== 0) return '৳0';
-    if (amount >= 1000000) {
-      return `৳${(amount / 1000000).toFixed(1)}M`;
-    }
-    if (amount >= 1000) {
-      return `৳${(amount / 1000).toFixed(1)}K`;
-    }
-    return `৳${amount}`;
   };
 
   if (loading) {
@@ -664,7 +520,7 @@ const Renters = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Renters Management</h1>
-          <p className="text-slate-600">Manage all renters in your buildings</p>
+          <p className="text-slate-600">Manage all renters and their lease information</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -691,7 +547,6 @@ const Renters = () => {
             <div>
               <p className="text-sm text-slate-600">Total Renters</p>
               <p className="text-3xl font-bold text-slate-900 mt-2">{stats.total}</p>
-              <p className="text-sm text-emerald-600 mt-2">Active: {stats.active}</p>
             </div>
             <div className="p-4 bg-blue-100 rounded-lg">
               <FaUser className="text-2xl text-blue-600" />
@@ -702,12 +557,14 @@ const Renters = () => {
         <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Monthly Rent</p>
-              <p className="text-3xl font-bold text-slate-900 mt-2">{formatCurrency(stats.totalRent)}</p>
-              <p className="text-sm text-emerald-600 mt-2">Collected: {formatCurrency(stats.collectedRent)}</p>
+              <p className="text-sm text-slate-600">Active Renters</p>
+              <p className="text-3xl font-bold text-slate-900 mt-2">{stats.active}</p>
+              <p className="text-sm text-emerald-600 mt-2">
+                Monthly Rent: {formatCurrency(stats.totalMonthlyRent)}
+              </p>
             </div>
             <div className="p-4 bg-emerald-100 rounded-lg">
-              <FaMoneyBillWave className="text-2xl text-emerald-600" />
+              <FaCheck className="text-2xl text-emerald-600" />
             </div>
           </div>
         </div>
@@ -728,63 +585,12 @@ const Renters = () => {
         <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Overdue Payments</p>
-              <p className="text-3xl font-bold text-slate-900 mt-2">{stats.overdue}</p>
-              <p className="text-sm text-rose-600 mt-2">{formatCurrency(stats.overdueRent)}</p>
+              <p className="text-sm text-slate-600">Occupancy Rate</p>
+              <p className="text-3xl font-bold text-slate-900 mt-2">{stats.occupancyRate}%</p>
+              <p className="text-sm text-slate-600 mt-2">{stats.active} of {stats.total} units</p>
             </div>
-            <div className="p-4 bg-rose-100 rounded-lg">
-              <FaExclamationTriangle className="text-2xl text-rose-600" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Performance Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-4 rounded-xl border">
-          <h3 className="font-medium text-slate-900 mb-3">Collection Rate</h3>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>{formatCompactCurrency(stats.collectedRent)} of {formatCompactCurrency(stats.totalRent)}</span>
-              <span className="font-medium">{stats.collectionRate}%</span>
-            </div>
-            <div className="w-full bg-slate-200 rounded-full h-2">
-              <div 
-                className="bg-emerald-600 h-2 rounded-full transition-all"
-                style={{ width: `${stats.collectionRate}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border">
-          <h3 className="font-medium text-slate-900 mb-3">Occupancy Rate</h3>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>{stats.active} of {stats.total} units</span>
-              <span className="font-medium">{stats.occupancyRate}%</span>
-            </div>
-            <div className="w-full bg-slate-200 rounded-full h-2">
-              <div 
-                className="bg-blue-600 h-2 rounded-full transition-all"
-                style={{ width: `${stats.occupancyRate}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-xl border">
-          <h3 className="font-medium text-slate-900 mb-3">Pending Payments</h3>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span>Pending: {formatCompactCurrency(stats.pendingRent)}</span>
-              <span className="font-medium text-amber-600">Overdue: {formatCompactCurrency(stats.overdueRent)}</span>
-            </div>
-            <div className="w-full bg-slate-200 rounded-full h-2">
-              <div 
-                className="bg-amber-600 h-2 rounded-full transition-all"
-                style={{ width: `${stats.totalRent > 0 ? (stats.pendingRent / stats.totalRent) * 100 : 0}%` }}
-              />
+            <div className="p-4 bg-violet-100 rounded-lg">
+              <FaBuilding className="text-2xl text-violet-600" />
             </div>
           </div>
         </div>
@@ -864,7 +670,7 @@ const Renters = () => {
                 <th className="text-left p-4 text-sm font-medium text-slate-700 uppercase tracking-wider">Unit</th>
                 <th className="text-left p-4 text-sm font-medium text-slate-700 uppercase tracking-wider">Contact</th>
                 <th className="text-left p-4 text-sm font-medium text-slate-700 uppercase tracking-wider">Lease Period</th>
-                <th className="text-left p-4 text-sm font-medium text-slate-700 uppercase tracking-wider">Rent</th>
+                <th className="text-left p-4 text-sm font-medium text-slate-700 uppercase tracking-wider">Monthly Rent</th>
                 <th className="text-left p-4 text-sm font-medium text-slate-700 uppercase tracking-wider">Status</th>
                 <th className="text-left p-4 text-sm font-medium text-slate-700 uppercase tracking-wider">Actions</th>
               </tr>
@@ -945,36 +751,15 @@ const Renters = () => {
                     <td className="p-4">
                       <div className="flex items-center gap-2">
                         <FaMoneyBillWave className="text-slate-400" />
-                        <div>
-                          <p className="font-medium text-slate-900">{formatCurrency(renter.rentAmount)}</p>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${
-                            renter.rentPaid 
-                              ? 'bg-emerald-100 text-emerald-700' 
-                              : 'bg-rose-100 text-rose-700'
-                          }`}>
-                            {renter.rentPaid ? 'Paid' : 'Pending'}
-                          </span>
-                          {renter.last_payment_date && (
-                            <p className="text-xs text-slate-500 mt-1">
-                              Last: {new Date(renter.last_payment_date).toLocaleDateString()}
-                            </p>
-                          )}
-                        </div>
+                        <p className="font-medium text-slate-900">{formatCurrency(renter.rentAmount)}</p>
                       </div>
                     </td>
                     <td className="p-4">
-                      <div className="flex flex-col gap-2">
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(renter.status)}
-                          <span className={`px-3 py-1.5 rounded-full text-xs font-semibold ${getStatusColor(renter.status)}`}>
-                            {renter.status ? (renter.status.charAt(0).toUpperCase() + renter.status.slice(1)) : 'Unknown'}
-                          </span>
-                        </div>
-                        {renter.status === 'overdue' && renter.last_payment_date && (
-                          <span className="text-xs text-rose-600 font-medium">
-                            {Math.ceil((new Date().getTime() - new Date(renter.last_payment_date).getTime()) / (1000 * 60 * 60 * 24))} days overdue
-                          </span>
-                        )}
+                      <div className="flex items-center gap-2">
+                        {getStatusIcon(renter.status)}
+                        <span className={`px-3 py-1.5 rounded-full text-xs font-semibold ${getStatusColor(renter.status)}`}>
+                          {renter.status ? (renter.status.charAt(0).toUpperCase() + renter.status.slice(1)) : 'Unknown'}
+                        </span>
                       </div>
                     </td>
                     <td className="p-4">
@@ -988,13 +773,22 @@ const Renters = () => {
                         </button>
                         
                         {renter.status === 'pending' && (
-                          <button 
-                            className="p-2 hover:bg-emerald-50 rounded-lg transition-colors text-emerald-600"
-                            onClick={() => handleApprove(renter)}
-                            title="Approve Renter"
-                          >
-                            <FaCheck />
-                          </button>
+                          <>
+                            <button 
+                              className="p-2 hover:bg-emerald-50 rounded-lg transition-colors text-emerald-600"
+                              onClick={() => handleApprove(renter)}
+                              title="Approve Renter"
+                            >
+                              <FaCheck />
+                            </button>
+                            <button 
+                              className="p-2 hover:bg-amber-50 rounded-lg transition-colors text-amber-600"
+                              onClick={() => handleUpdateStatus(renter.id, 'active')}
+                              title="Set Active"
+                            >
+                              <FaCheck />
+                            </button>
+                          </>
                         )}
                         
                         <button 
@@ -1004,34 +798,6 @@ const Renters = () => {
                         >
                           <FaEdit />
                         </button>
-                        
-                        <button 
-                          className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
-                          onClick={() => handleViewPaymentHistory(renter)}
-                          title="Payment History"
-                        >
-                          <FaHistory />
-                        </button>
-                        
-                        {!renter.rentPaid && renter.status === 'active' && (
-                          <button 
-                            className="p-2 hover:bg-emerald-50 rounded-lg transition-colors text-emerald-600"
-                            onClick={() => handleRecordPayment(renter)}
-                            title="Record Payment"
-                          >
-                            <FaCreditCard />
-                          </button>
-                        )}
-                        
-                        {renter.status === 'overdue' && (
-                          <button 
-                            className="p-2 hover:bg-amber-50 rounded-lg transition-colors text-amber-600"
-                            onClick={() => handleSendReminder(renter)}
-                            title="Send Reminder"
-                          >
-                            <FaBell />
-                          </button>
-                        )}
                         
                         <button 
                           className="p-2 hover:bg-rose-50 rounded-lg transition-colors text-rose-600"
@@ -1048,32 +814,6 @@ const Renters = () => {
             </tbody>
           </table>
         </div>
-
-        {/* Pagination */}
-        {filteredRenters.length > 0 && (
-          <div className="flex items-center justify-between p-4 border-t border-slate-200">
-            <p className="text-sm text-slate-500">
-              Showing {filteredRenters.length} of {renters.length} renters
-            </p>
-            <div className="flex items-center space-x-2">
-              <button className="px-3 py-1 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50">
-                Previous
-              </button>
-              <button className="px-3 py-1 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors">
-                1
-              </button>
-              <button className="px-3 py-1 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">
-                2
-              </button>
-              <button className="px-3 py-1 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">
-                3
-              </button>
-              <button className="px-3 py-1 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors">
-                Next
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Summary Cards */}
@@ -1085,20 +825,12 @@ const Renters = () => {
           </h3>
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <span className="text-slate-600">Total Expected Rent</span>
-              <span className="font-bold text-lg text-slate-900">{formatCurrency(stats.totalRent)}</span>
+              <span className="text-slate-600">Total Monthly Rent</span>
+              <span className="font-bold text-lg text-slate-900">{formatCurrency(stats.totalMonthlyRent)}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-600">Collected Rent</span>
-              <span className="font-bold text-lg text-emerald-600">{formatCurrency(stats.collectedRent)}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-600">Pending Rent</span>
-              <span className="font-bold text-lg text-amber-600">{formatCurrency(stats.pendingRent)}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-600">Overdue Rent</span>
-              <span className="font-bold text-lg text-rose-600">{formatCurrency(stats.overdueRent)}</span>
+              <span className="text-slate-600">Active Renters</span>
+              <span className="font-bold text-lg text-emerald-600">{stats.active}</span>
             </div>
           </div>
         </div>
@@ -1118,19 +850,15 @@ const Renters = () => {
               <span className="font-bold text-lg text-emerald-600">{stats.active}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-slate-600">Vacant Units</span>
-              <span className="font-bold text-lg text-amber-600">{Math.max(0, stats.total - stats.active)}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-slate-600">Under Maintenance</span>
-              <span className="font-bold text-lg text-rose-600">1</span>
+              <span className="text-slate-600">Pending Approval</span>
+              <span className="font-bold text-lg text-amber-600">{stats.pending}</span>
             </div>
           </div>
         </div>
         
         <div className="bg-white p-6 rounded-xl border shadow-sm">
           <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <FaEnvelopeOpenText className="text-violet-600" />
+            <FaFileContract className="text-violet-600" />
             Quick Actions
           </h3>
           <div className="space-y-3">
@@ -1142,25 +870,11 @@ const Renters = () => {
               Add New Renter
             </button>
             <button 
-              onClick={() => window.location.href = '/manager/leases'}
-              className="w-full text-left p-3 bg-slate-50 hover:bg-slate-100 rounded-lg flex items-center gap-2 transition-colors"
-            >
-              <FaFileContract className="text-violet-600" />
-              Generate Lease Agreements
-            </button>
-            <button 
               onClick={exportToExcel}
               className="w-full text-left p-3 bg-slate-50 hover:bg-slate-100 rounded-lg flex items-center gap-2 transition-colors"
             >
               <FaDownload className="text-violet-600" />
               Export Renter List
-            </button>
-            <button 
-              onClick={() => window.location.href = '/manager/payments'}
-              className="w-full text-left p-3 bg-slate-50 hover:bg-slate-100 rounded-lg flex items-center gap-2 transition-colors"
-            >
-              <FaCreditCard className="text-violet-600" />
-              Process Bulk Payments
             </button>
           </div>
         </div>
@@ -1220,14 +934,8 @@ const Renters = () => {
                     <p className="font-medium text-slate-900">{selectedRenter.apartment} - {selectedRenter.building}</p>
                   </div>
                   <div className="p-3 bg-slate-50 rounded-lg">
-                    <label className="text-xs font-medium text-slate-500">Rent Amount</label>
-                    <p className="font-medium text-slate-900">{formatCurrency(selectedRenter.rentAmount)}/month</p>
-                  </div>
-                  <div className="p-3 bg-slate-50 rounded-lg">
-                    <label className="text-xs font-medium text-slate-500">Payment Status</label>
-                    <p className={`font-medium ${selectedRenter.rentPaid ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {selectedRenter.rentPaid ? 'Paid' : 'Pending'}
-                    </p>
+                    <label className="text-xs font-medium text-slate-500">Monthly Rent</label>
+                    <p className="font-medium text-slate-900">{formatCurrency(selectedRenter.rentAmount)}</p>
                   </div>
                   <div className="p-3 bg-slate-50 rounded-lg">
                     <label className="text-xs font-medium text-slate-500">Lease Start</label>
@@ -1251,36 +959,14 @@ const Renters = () => {
                   </div>
                 </div>
 
-                {selectedRenter.last_payment_date && (
-                  <div className="p-4 bg-slate-50 rounded-lg">
-                    <h4 className="font-medium text-slate-900 mb-2">Last Payment</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm text-slate-600">Date</p>
-                        <p className="font-medium">
-                          {new Date(selectedRenter.last_payment_date).toLocaleDateString('en-US', {
-                            month: 'long',
-                            day: 'numeric',
-                            year: 'numeric'
-                          })}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-slate-600">Amount</p>
-                        <p className="font-medium">{formatCurrency(selectedRenter.last_payment_amount || 0)}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 <div className="border-t border-slate-200 pt-4">
                   <h5 className="font-medium text-slate-900 mb-2">Documents</h5>
                   <div className="flex flex-wrap gap-2">
-                    {selectedRenter.documents.map((doc, index) => (
+                    {selectedRenter.documents?.map((doc, index) => (
                       <span key={index} className="px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-sm">
                         {doc.toUpperCase()}
                       </span>
-                    ))}
+                    )) || <p className="text-slate-500">No documents uploaded</p>}
                   </div>
                 </div>
 
@@ -1294,17 +980,6 @@ const Renters = () => {
                   >
                     Edit
                   </button>
-                  {!selectedRenter.rentPaid && (
-                    <button
-                      onClick={() => {
-                        setShowDetailsModal(false);
-                        handleRecordPayment(selectedRenter);
-                      }}
-                      className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
-                    >
-                      Record Payment
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
@@ -1383,180 +1058,181 @@ const Renters = () => {
         </div>
       )}
 
-      {/* Add Renter Modal - FIXED */}
-{showAddModal && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-    <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-bold text-slate-900">Add New Renter</h3>
-          <button 
-            onClick={() => setShowAddModal(false)}
-            className="p-2 hover:bg-slate-100 rounded-lg"
-          >
-            <FaTimes className="text-slate-600" />
-          </button>
+      {/* Add Renter Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-slate-900">Add New Renter</h3>
+                <button 
+                  onClick={() => setShowAddModal(false)}
+                  className="p-2 hover:bg-slate-100 rounded-lg"
+                >
+                  <FaTimes className="text-slate-600" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Full Name *</label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      value={newRenter.name}
+                      onChange={(e) => setNewRenter({...newRenter, name: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Email *</label>
+                    <input
+                      type="email"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      value={newRenter.email}
+                      onChange={(e) => setNewRenter({...newRenter, email: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Phone *</label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      value={newRenter.phone}
+                      onChange={(e) => setNewRenter({...newRenter, phone: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">NID Number</label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      value={newRenter.nid_number}
+                      onChange={(e) => setNewRenter({...newRenter, nid_number: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Emergency Contact</label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      value={newRenter.emergency_contact}
+                      onChange={(e) => setNewRenter({...newRenter, emergency_contact: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Occupation</label>
+                    <input
+                      type="text"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      value={newRenter.occupation}
+                      onChange={(e) => setNewRenter({...newRenter, occupation: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Building *</label>
+                    <select
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      value={newRenter.building_id}
+                      onChange={(e) => {
+                        setNewRenter({...newRenter, building_id: e.target.value, apartment_id: ''});
+                        if (e.target.value) {
+                          fetchAvailableApartments(parseInt(e.target.value));
+                        }
+                      }}
+                      required
+                    >
+                      <option value="">Select Building</option>
+                      {buildings.map(b => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Apartment *</label>
+                    <select
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      value={newRenter.apartment_id}
+                      onChange={(e) => setNewRenter({...newRenter, apartment_id: e.target.value})}
+                      required
+                      disabled={!newRenter.building_id}
+                    >
+                      <option value="">Select Apartment</option>
+                      {availableApartments.map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.apartment_number} (Floor {a.floor}) - ৳{a.rent_amount}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Monthly Rent (৳) *</label>
+                    <input
+                      type="number"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      value={newRenter.rentAmount}
+                      onChange={(e) => setNewRenter({...newRenter, rentAmount: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Lease Start *</label>
+                    <input
+                      type="date"
+                      className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                      value={newRenter.leaseStart}
+                      onChange={(e) => setNewRenter({...newRenter, leaseStart: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Lease End *</label>
+                  <input
+                    type="date"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    value={newRenter.leaseEnd}
+                    onChange={(e) => setNewRenter({...newRenter, leaseEnd: e.target.value})}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 mt-8">
+                <button
+                  onClick={() => setShowAddModal(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSubmitAddRenter}
+                  className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
+                >
+                  Add Renter
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
+      )}
 
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Full Name *</label>
-              <input
-                type="text"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                value={newRenter.name}
-                onChange={(e) => setNewRenter({...newRenter, name: e.target.value})}
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email *</label>
-              <input
-                type="email"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                value={newRenter.email}
-                onChange={(e) => setNewRenter({...newRenter, email: e.target.value})}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Phone *</label>
-              <input
-                type="text"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                value={newRenter.phone}
-                onChange={(e) => setNewRenter({...newRenter, phone: e.target.value})}
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">NID Number</label>
-              <input
-                type="text"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                value={newRenter.nid_number}
-                onChange={(e) => setNewRenter({...newRenter, nid_number: e.target.value})}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Emergency Contact</label>
-              <input
-                type="text"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                value={newRenter.emergency_contact}
-                onChange={(e) => setNewRenter({...newRenter, emergency_contact: e.target.value})}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Occupation</label>
-              <input
-                type="text"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                value={newRenter.occupation}
-                onChange={(e) => setNewRenter({...newRenter, occupation: e.target.value})}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Building *</label>
-              <select
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                value={newRenter.building_id}
-                onChange={(e) => {
-                  setNewRenter({...newRenter, building_id: e.target.value, apartment_id: ''});
-                  if (e.target.value) {
-                    fetchAvailableApartments(parseInt(e.target.value));
-                  }
-                }}
-                required
-              >
-                <option value="">Select Building</option>
-                {buildings.map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Apartment *</label>
-              <select
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                value={newRenter.apartment_id}
-                onChange={(e) => setNewRenter({...newRenter, apartment_id: e.target.value})}
-                required
-                disabled={!newRenter.building_id}
-              >
-                <option value="">Select Apartment</option>
-                {availableApartments.map(a => (
-                  <option key={a.id} value={a.id}>
-                    {a.apartment_number} (Floor {a.floor}) - ৳{a.rent_amount}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Rent Amount (৳) *</label>
-              <input
-                type="number"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                value={newRenter.rentAmount}
-                onChange={(e) => setNewRenter({...newRenter, rentAmount: e.target.value})}
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Lease Start *</label>
-              <input
-                type="date"
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                value={newRenter.leaseStart}
-                onChange={(e) => setNewRenter({...newRenter, leaseStart: e.target.value})}
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Lease End *</label>
-            <input
-              type="date"
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-              value={newRenter.leaseEnd}
-              onChange={(e) => setNewRenter({...newRenter, leaseEnd: e.target.value})}
-              required
-            />
-          </div>
-        </div>
-
-        <div className="flex justify-end space-x-3 mt-8">
-          <button
-            onClick={() => setShowAddModal(false)}
-            className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmitAddRenter}
-            className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
-          >
-            Add Renter
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
       {/* Edit Renter Modal */}
       {showEditModal && selectedRenter && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -1651,7 +1327,7 @@ const Renters = () => {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Rent Amount (৳) *</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Monthly Rent (৳) *</label>
                     <input
                       type="number"
                       className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
@@ -1699,142 +1375,6 @@ const Renters = () => {
                 >
                   Update Renter
                 </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Payment Modal */}
-      {showPaymentModal && selectedRenter && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full">
-            <div className="p-6">
-              <h3 className="text-xl font-bold text-slate-900 mb-2">Record Payment</h3>
-              <p className="text-slate-600 mb-6">
-                Record payment for {selectedRenter.name} - {selectedRenter.apartment}
-              </p>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Amount (৳)</label>
-                  <input
-                    type="number"
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(parseFloat(e.target.value))}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Payment Month</label>
-                  <input
-                    type="month"
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    value={paymentMonth.slice(0, 7)}
-                    onChange={(e) => setPaymentMonth(e.target.value + '-01')}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Payment Method</label>
-                  <select
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                    value={paymentMethod}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                  >
-                    <option value="cash">Cash</option>
-                    <option value="bank_transfer">Bank Transfer</option>
-                    <option value="bkash">bKash</option>
-                    <option value="nagad">Nagad</option>
-                    <option value="rocket">Rocket</option>
-                    <option value="card">Card</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-3 mt-8">
-                <button
-                  onClick={() => setShowPaymentModal(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSubmitPayment}
-                  className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
-                >
-                  Record Payment
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Payment History Modal */}
-      {showHistoryModal && selectedRenter && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold text-slate-900">
-                  Payment History - {selectedRenter.name}
-                </h3>
-                <button 
-                  onClick={() => setShowHistoryModal(false)}
-                  className="p-2 hover:bg-slate-100 rounded-lg"
-                >
-                  <FaTimes className="text-slate-600" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                {selectedRenter.payment_history?.length === 0 ? (
-                  <div className="text-center py-8">
-                    <FaHistory className="text-4xl text-slate-300 mx-auto mb-4" />
-                    <p className="text-slate-500">No payment history found</p>
-                  </div>
-                ) : (
-                  selectedRenter.payment_history?.map((payment, index) => (
-                    <div key={index} className="border border-slate-200 rounded-lg p-4">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-medium text-slate-900">
-                            {new Date(payment.month).toLocaleDateString('en-US', { 
-                              month: 'long', 
-                              year: 'numeric' 
-                            })}
-                          </p>
-                          <p className="text-sm text-slate-500">
-                            Amount: {formatCurrency(payment.amount)}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                            payment.status === 'paid' 
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : payment.status === 'pending'
-                              ? 'bg-amber-100 text-amber-700'
-                              : 'bg-rose-100 text-rose-700'
-                          }`}>
-                            {payment.status.toUpperCase()}
-                          </span>
-                          {payment.paid_at && (
-                            <p className="text-xs text-slate-500 mt-2">
-                              {new Date(payment.paid_at).toLocaleDateString()}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      {payment.payment_method && (
-                        <p className="text-xs text-slate-400 mt-2">
-                          Method: {payment.payment_method.replace('_', ' ')}
-                        </p>
-                      )}
-                    </div>
-                  ))
-                )}
               </div>
             </div>
           </div>
