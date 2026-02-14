@@ -17,7 +17,7 @@ import ManagerMaintenance from "./components/manager/Maintenance";
 import ManagerPayments from "./components/manager/Payments";
 import ManagerSettings from "./components/manager/Settings";
 import ManagerMessages from "./components/manager/Messages";
-import AdvancedAnalytics from './components/manager/AdvancedAnalytics';
+
 
 // Renter components
 import RenterDashboard from './components/renter/RenterDashboard';
@@ -102,10 +102,6 @@ export const router = createBrowserRouter([
       {
         path: "payments",
         element: <ManagerPayments />,
-      },
-      {
-        path: "analytics", 
-        element: <AdvancedAnalytics />,
       },
       {
         path: "settings",

@@ -57,6 +57,7 @@ app.use('/api/manager', managerRoutes); // YOURS
 app.use('/api/owner', ownerRoutes); // HERS
 app.use('/api/renter', renterRoutes);
 
+
 // 404 handler (HERS)
 app.use('*', (req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });

@@ -1,3 +1,4 @@
+// src/components/manager/ManagerPayments.tsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
@@ -492,7 +493,7 @@ const ManagerPayments = () => {
             </div>
             <FaCheckCircle className="text-2xl text-emerald-500" />
           </div>
-</div>
+        </div>
         <div className="bg-white p-4 rounded-xl border">
           <div className="flex items-center justify-between">
             <div>

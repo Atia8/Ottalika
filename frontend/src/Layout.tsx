@@ -26,7 +26,6 @@ const Layout: React.FC = () => {
     { id: 'maintenance', name: 'Maintenance', icon: <FaTools />, path: '/manager/maintenance' },
     { id: 'payments', name: 'Payments', icon: <FaCheckCircle />, path: '/manager/payments' },
     { id: 'messages', name: 'Messages', icon: <FaEnvelope />, path: '/manager/messages' },
-    { id: 'analytics', name: 'Analytics', icon: <FaChartLine />, path: '/manager/analytics' },
     
   ];
 
