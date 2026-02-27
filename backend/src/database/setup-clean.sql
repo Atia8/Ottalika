@@ -956,7 +956,7 @@ SELECT
     (SELECT name FROM buildings WHERE id = building_id) as building_name,
     owner_id,
     amount,
-    due_date,
+    due_date,s
     status::TEXT as status,  -- Cast to TEXT to avoid enum mismatch
     paid_date,
     paid_amount,
