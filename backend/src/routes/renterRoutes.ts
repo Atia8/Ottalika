@@ -274,68 +274,55 @@ router.put('/profile', async (req: Request, res: Response) => {
 });
 
 // GET /api/renter/payments - Get renter payments
+// GET /api/renter/payments - Use the database function
+// GET /api/renter/payments - Get ALL renter payments with status grouping
 router.get('/payments', async (req: Request, res: Response) => {
   try {
     const renterId = (req as any).renterId;
-    const { status, limit = 20 } = req.query;
     
-    let query = `
-      SELECT 
-        p.*,
-        a.apartment_number,
-        pc.status as verification_status,
-        pc.verified_at,
-        pc.notes as verification_notes
-      FROM payments p
-      JOIN apartments a ON p.apartment_id = a.id
-      LEFT JOIN payment_confirmations pc ON p.id = pc.payment_id
-      WHERE p.renter_id = $1
-    `;
+    // Use the database function
+    const result = await dbQuery(
+      'SELECT * FROM get_renter_payment_status($1)',
+      [renterId]
+    );
     
-    const params: any[] = [renterId];
+    // Group payments for frontend
+    const payments = result.rows;
+    const grouped = {
+      overdue: payments.filter((p: any) => p.display_status === 'overdue'),
+      due_now: payments.filter((p: any) => p.display_status === 'due_now'),
+      upcoming: payments.filter((p: any) => p.display_status === 'upcoming'),
+      paid: payments.filter((p: any) => p.display_status === 'paid')
+    };
     
-    if (status && status !== 'all') {
-      query += ' AND p.status = $2';
-      params.push(status);
-    }
+    // Calculate summary
+    const summary = {
+      total_due: [...grouped.overdue, ...grouped.due_now].reduce((sum, p) => sum + parseFloat(p.amount), 0),
+      overdue_count: grouped.overdue.length,
+      due_now_count: grouped.due_now.length,
+      upcoming_count: grouped.upcoming.length,
+      paid_count: grouped.paid.length
+    };
     
-    query += ' ORDER BY p.month DESC LIMIT $' + (params.length + 1);
-    params.push(parseInt(limit as string));
+    // Get current month for reference
+    const today = new Date();
+    const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
     
-    const result = await dbQuery(query, params);
-    
-    const statsResult = await dbQuery(`
-      SELECT 
-        COUNT(*) as total,
-        COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_count,
-        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,
-        COUNT(CASE WHEN status = 'overdue' THEN 1 END) as overdue_count,
-        COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as total_paid,
-        COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as total_pending,
-        COALESCE(SUM(CASE WHEN status = 'overdue' THEN amount ELSE 0 END), 0) as total_overdue
-      FROM payments 
-      WHERE renter_id = $1
-    `, [renterId]);
-    
-    res.status(200).json({
+    res.json({
       success: true,
       data: {
-        payments: result.rows,
-        stats: statsResult.rows[0],
-        total: result.rowCount
+        ...grouped,
+        summary,
+        current_month: currentMonth,
+        all_payments: payments
       }
     });
     
   } catch (error) {
-    console.error('Get payments error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get payments'
-    });
+    console.error('Error fetching payments:', error);
+    res.status(500).json({ success: false, message: 'Failed to get payments' });
   }
 });
-
-// GET /api/renter/payments/recent - Get recent payments
 router.get('/payments/recent', async (req: Request, res: Response) => {
   try {
     const renterId = (req as any).renterId;
@@ -372,94 +359,115 @@ router.get('/payments/recent', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/renter/payments/make - Make a payment
+// POST /api/renter/payments/make - Make a payment with validation
 router.post('/payments/make', async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const renterId = (req as any).renterId;
-    const { month, amount, payment_method, transaction_id } = req.body;
+    const { payment_id, payment_method, transaction_id } = req.body;
     
-    if (!month || !amount || !payment_method) {
+    console.log('💰 Payment request received:', { renterId, payment_id, payment_method });
+    
+    if (!payment_id || !payment_method) {
+      console.log('❌ Missing required fields');
       return res.status(400).json({
         success: false,
-        message: 'Month, amount, and payment method are required'
+        message: 'Payment ID and payment method are required'
       });
     }
     
-    const apartmentResult = await dbQuery(
-      'SELECT id, rent_amount FROM apartments WHERE current_renter_id = $1',
+    await client.query('BEGIN');
+    
+    // First, check if the payment exists and belongs to this renter
+    const paymentCheck = await client.query(
+      'SELECT * FROM payments WHERE id = $1 AND renter_id = $2',
+      [payment_id, renterId]
+    );
+    
+    if (paymentCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Payment not found'
+      });
+    }
+    
+    const payment = paymentCheck.rows[0];
+    
+    // Check if already paid
+    if (payment.status === 'paid') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        success: false,
+        message: 'This payment has already been made'
+      });
+    }
+    
+    // Validate the payment using database function
+    const validationResult = await client.query(
+      'SELECT validate_renter_payment($1, $2) as valid',
+      [renterId, payment_id]
+    );
+    
+    // If validation passes, update payment
+    const updateResult = await client.query(`
+      UPDATE payments 
+      SET 
+        status = 'paid',
+        payment_method = $1,
+        transaction_id = $2,
+        paid_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3 AND renter_id = $4
+      RETURNING id, amount, month, status
+    `, [payment_method, transaction_id || null, payment_id, renterId]);
+    
+    if (updateResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        message: 'Payment not found'
+      });
+    }
+    
+    // Create payment confirmation
+    await client.query(`
+      INSERT INTO payment_confirmations (payment_id, status, created_at)
+      VALUES ($1, 'pending_review', CURRENT_TIMESTAMP)
+    `, [payment_id]);
+    
+    await client.query('COMMIT');
+    
+    // Get updated payment list
+    const updatedPayments = await client.query(
+      'SELECT * FROM get_renter_payment_status($1)',
       [renterId]
     );
     
-    if (apartmentResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Apartment not found for this renter'
-      });
-    }
-    
-    const apartmentId = apartmentResult.rows[0].id;
-    const rentAmount = apartmentResult.rows[0].rent_amount;
-    
-    if (parseFloat(amount) < parseFloat(rentAmount)) {
-      return res.status(400).json({
-        success: false,
-        message: `Payment amount must be at least ${rentAmount}`
-      });
-    }
-    
-    const dueDate = new Date(month);
-    dueDate.setDate(dueDate.getDate() + 5);
-    
-    const existingPayment = await dbQuery(`
-      SELECT id FROM payments 
-      WHERE renter_id = $1 
-        AND DATE_TRUNC('month', month) = DATE_TRUNC('month', $2::date)
-    `, [renterId, month]);
-    
-    if (existingPayment.rows.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Payment already exists for this month'
-      });
-    }
-    
-    const result = await dbQuery(`
-      INSERT INTO payments (
-        apartment_id,
-        renter_id,
-        amount,
-        month,
-        due_date,
-        status,
-        payment_method,
-        transaction_id,
-        paid_at
-      ) VALUES ($1, $2, $3, $4, $5, 'paid', $6, $7, CURRENT_TIMESTAMP)
-      RETURNING id, amount, month, status
-    `, [apartmentId, renterId, amount, month, dueDate, payment_method, transaction_id]);
-    
-    await dbQuery(`
-      INSERT INTO payment_confirmations (payment_id, status)
-      VALUES ($1, 'pending_review')
-    `, [result.rows[0].id]);
-    
-    res.status(201).json({
+    res.json({
       success: true,
       data: {
-        message: 'Payment submitted successfully',
-        payment: result.rows[0]
+        message: 'Payment submitted successfully!',
+        payment: updateResult.rows[0],
+        all_payments: updatedPayments.rows
       }
     });
     
-  } catch (error) {
-    console.error('Make payment error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to make payment'
-    });
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('Error making payment:', error);
+    
+    // Check if it's a validation error from the database
+    if (error.message.includes('Cannot pay for future months') ||
+        error.message.includes('Must pay older months first')) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    
+    res.status(500).json({ success: false, message: 'Failed to make payment' });
+  } finally {
+    client.release();
   }
 });
-
 // GET /api/renter/complaints - Get renter complaints
 router.get('/complaints', async (req: Request, res: Response) => {
   try {

@@ -790,10 +790,14 @@ router.get('/complaints/needs-confirmation', async (req: Request, res: Response)
 // ==================== PAYMENTS ENDPOINTS ====================
 
 // GET /api/manager/payments - Get rent payments
+// GET /api/manager/payments - Get rent payments with status grouping
+// GET /api/manager/payments - FIXED for new schema
 router.get('/payments', async (req: Request, res: Response) => {
   try {
-    const { month, status, page = 1, limit = 20 } = req.query;
+    const { month, status, renter_id, page = 1, limit = 20 } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
+    const today = new Date();
+    const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     
     let query = `
       SELECT 
@@ -806,7 +810,12 @@ router.get('/payments', async (req: Request, res: Response) => {
         b.name as building_name,
         pc.status as confirmation_status,
         pc.verified_at,
-        pc.notes as verification_notes
+        CASE 
+          WHEN p.status = 'paid' THEN 'paid'
+          WHEN p.status = 'pending' AND p.month < $1::date THEN 'overdue'
+          WHEN p.status = 'pending' AND p.month >= $1::date THEN 'pending'
+          ELSE p.status::text
+        END as display_status
       FROM payments p
       LEFT JOIN apartments a ON p.apartment_id = a.id
       LEFT JOIN renters r ON p.renter_id = r.id
@@ -815,72 +824,69 @@ router.get('/payments', async (req: Request, res: Response) => {
       WHERE 1=1
     `;
     
-    const params: any[] = [];
-    let paramCount = 0;
+    const params: any[] = [currentMonth];
+    let paramCount = 1;
     
-    if (month) {
+    if (month && month !== 'all') {
       paramCount++;
       params.push(month);
       query += ` AND DATE_TRUNC('month', p.month) = DATE_TRUNC('month', $${paramCount}::date)`;
     }
     
     if (status && status !== 'all') {
+      if (status === 'overdue') {
+        query += ` AND p.status = 'pending' AND p.month < $1::date`;
+      } else if (status === 'pending') {
+        query += ` AND p.status = 'pending' AND p.month >= $1::date`;
+      } else {
+        paramCount++;
+        params.push(status);
+        query += ` AND p.status = $${paramCount}`;
+      }
+    }
+    
+    if (renter_id && renter_id !== 'all') {
       paramCount++;
-      params.push(status);
-      query += ` AND p.status = $${paramCount}`;
+      params.push(renter_id);
+      query += ` AND p.renter_id = $${paramCount}`;
     }
     
     // Get total count
     const countQuery = query.replace(
-      'SELECT p.*, a.apartment_number, a.floor, r.name as renter_name, r.email as renter_email, r.phone as renter_phone, b.name as building_name, pc.status as confirmation_status, pc.verified_at, pc.notes as verification_notes',
+      'SELECT p.*, a.apartment_number, a.floor, r.name as renter_name, r.email as renter_email, r.phone as renter_phone, b.name as building_name, pc.status as confirmation_status, pc.verified_at',
       'SELECT COUNT(*) as total'
     );
-    console.log('📊 Getting payment count...');
     const countResult = await dbQuery(countQuery, params);
-    const total = parseInt(countResult.rows[0].total);
+    const total = parseInt(countResult.rows[0].total) || 0;
     
-    // Get paginated data
-    query += ` ORDER BY p.due_date DESC, a.apartment_number 
+    // Add pagination
+    query += ` ORDER BY p.month DESC, a.apartment_number 
                LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
     params.push(parseInt(limit as string), offset);
     
-    console.log('📊 Getting paginated payments...');
     const result = await dbQuery(query, params);
-    console.log(`✅ Found ${result.rows.length} payments`);
     
-    // Format payments with Taka currency
-    const formattedPayments = result.rows.map(row => ({
-      ...row,
-      amount_display: `৳${parseFloat(row.amount).toLocaleString('en-BD')}`,
-      paid_amount_display: row.paid_amount ? `৳${parseFloat(row.paid_amount).toLocaleString('en-BD')}` : null
-    }));
-    
-    // Calculate summary
-    const summaryQuery = `
-      SELECT 
-        COUNT(*) as total_count,
-        COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as total_pending,
-        COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as total_paid,
-        COALESCE(SUM(CASE WHEN status = 'overdue' THEN amount ELSE 0 END), 0) as total_overdue
-      FROM payments
-      ${month ? 'WHERE DATE_TRUNC(\'month\', month) = DATE_TRUNC(\'month\', $1::date)' : ''}
-    `;
-    
-    const summaryResult = await dbQuery(summaryQuery, month ? [month] : []);
-    
-    // Format summary with Taka
-    const formattedSummary = {
-      ...summaryResult.rows[0],
-      total_pending_display: `৳${parseFloat(summaryResult.rows[0].total_pending || 0).toLocaleString('en-BD')}`,
-      total_paid_display: `৳${parseFloat(summaryResult.rows[0].total_paid || 0).toLocaleString('en-BD')}`,
-      total_overdue_display: `৳${parseFloat(summaryResult.rows[0].total_overdue || 0).toLocaleString('en-BD')}`
+    // Calculate summary stats
+    const summary = {
+      total_pending: result.rows.filter((p: any) => p.display_status === 'pending').length,
+      total_overdue: result.rows.filter((p: any) => p.display_status === 'overdue').length,
+      total_paid: result.rows.filter((p: any) => p.status === 'paid').length,
+      amount_pending: result.rows
+        .filter((p: any) => p.status === 'pending' && new Date(p.month) >= currentMonth)
+        .reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0),
+      amount_overdue: result.rows
+        .filter((p: any) => p.status === 'pending' && new Date(p.month) < currentMonth)
+        .reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0),
+      amount_paid: result.rows
+        .filter((p: any) => p.status === 'paid')
+        .reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0)
     };
     
-    res.status(200).json({
+    res.json({
       success: true,
       data: {
-        payments: formattedPayments,
-        summary: formattedSummary,
+        payments: result.rows,
+        summary,
         pagination: {
           total,
           page: parseInt(page as string),
@@ -892,14 +898,15 @@ router.get('/payments', async (req: Request, res: Response) => {
     
   } catch (error: any) {
     console.error('❌ Get payments error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get payments'
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get payments',
+      error: error.message 
     });
   }
 });
 
-// GET /api/manager/payments/months - Get available months
+// GET /api/manager/payments/months - Get available months (keep existing)
 router.get('/payments/months', async (req: Request, res: Response) => {
   try {
     console.log('📅 Fetching payment months...');
@@ -917,7 +924,6 @@ router.get('/payments/months', async (req: Request, res: Response) => {
     const result = await dbQuery(query);
     console.log(`✅ Found ${result.rows.length} months`);
     
-    // Format the results properly
     const months = result.rows.map(row => {
       const monthDate = row.month_date;
       const displayMonth = new Date(monthDate).toLocaleDateString('en-US', { 
@@ -925,7 +931,6 @@ router.get('/payments/months', async (req: Request, res: Response) => {
         year: 'numeric' 
       });
       
-      // Create proper YYYY-MM-01 format for value
       const year = row.year;
       const monthNum = String(row.month_num).padStart(2, '0');
       const value = `${year}-${monthNum}-01`;
@@ -933,7 +938,6 @@ router.get('/payments/months', async (req: Request, res: Response) => {
       return { display_month: displayMonth, value };
     });
     
-    // If no payments yet, return current and previous months
     if (months.length === 0) {
       const currentDate = new Date();
       const fallbackMonths = [];
@@ -951,14 +955,12 @@ router.get('/payments/months', async (req: Request, res: Response) => {
         });
       }
       
-      console.log('📅 Using fallback months:', fallbackMonths);
       return res.json({
         success: true,
         months: fallbackMonths
       });
     }
     
-    console.log('✅ Sending months:', months);
     res.json({
       success: true,
       months
@@ -967,7 +969,6 @@ router.get('/payments/months', async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('💥 Error in /payments/months:', error.message);
     
-    // Provide fallback response
     const currentDate = new Date();
     const fallbackMonths = [];
     
@@ -992,120 +993,70 @@ router.get('/payments/months', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/manager/payments/generate-monthly - Generate monthly rent bills
-router.post('/payments/generate-monthly', async (req: Request, res: Response) => {
+// POST /api/manager/payments/generate-next-month - Generate next month's payments only
+router.post('/payments/generate-next-month', async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
-    const { month } = req.body;
+    await client.query('BEGIN');
     
-    if (!month) {
+    const today = new Date();
+    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    const dueDate = new Date(nextMonth);
+    dueDate.setDate(5);
+    
+    const existingCheck = await client.query(`
+      SELECT COUNT(*) as count FROM payments 
+      WHERE DATE_TRUNC('month', month) = DATE_TRUNC('month', $1::date)
+    `, [nextMonth]);
+    
+    if (parseInt(existingCheck.rows[0].count) > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({
         success: false,
-        message: 'Month is required'
+        message: `Payments for ${nextMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} already exist`
       });
     }
     
-    console.log(`💰 Generating rent bills for month: ${month}`);
-    
-    // Generate rent bills for all occupied apartments
-    const result = await dbQuery(`
-      INSERT INTO payments (apartment_id, renter_id, amount, month, status, due_date)
+    const result = await client.query(`
+      INSERT INTO payments (apartment_id, renter_id, amount, month, due_date, status, created_at, updated_at)
       SELECT 
-        a.id,
-        a.current_renter_id,
-        a.rent_amount,
+        r.apartment_id,
+        r.id,
+        r.agreed_rent,
         $1::date,
+        $2::date,
         'pending',
-        DATE($1::date + INTERVAL '5 days')
-      FROM apartments a
-      WHERE a.status = 'occupied' 
-        AND a.current_renter_id IS NOT NULL
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+      FROM renters r
+      WHERE r.status = 'active'
+        AND r.apartment_id IS NOT NULL
         AND NOT EXISTS (
           SELECT 1 FROM payments p 
-          WHERE p.apartment_id = a.id 
+          WHERE p.renter_id = r.id 
             AND DATE_TRUNC('month', p.month) = DATE_TRUNC('month', $1::date)
         )
-      RETURNING id, apartment_id, amount, due_date
-    `, [month]);
+      RETURNING id, apartment_id, renter_id, amount, month, due_date
+    `, [nextMonth, dueDate]);
     
-    console.log(`✅ Generated ${result.rowCount} monthly rent bills`);
+    await client.query('COMMIT');
     
-    // Format with Taka
-    const formattedBills = result.rows.map(bill => ({
-      ...bill,
-      amount_display: `৳${parseFloat(bill.amount).toLocaleString('en-BD')}`
-    }));
-    
-    res.status(200).json({
+    res.json({
       success: true,
       data: {
-        message: `Generated ${result.rowCount} monthly rent bills`,
-        bills: formattedBills
+        message: `Generated ${result.rowCount} payments for ${nextMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`,
+        count: result.rowCount,
+        payments: result.rows,
+        month: nextMonth.toISOString().split('T')[0]
       }
     });
     
   } catch (error: any) {
-    console.error('❌ Generate bills error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to generate monthly bills'
-    });
-  }
-});
-
-// POST /api/manager/bills/generate-monthly - Generate monthly rent bills (alternative endpoint)
-router.post('/bills/generate-monthly', async (req: Request, res: Response) => {
-  try {
-    // Get next month
-    const nextMonth = new Date();
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    nextMonth.setDate(1);
-    const monthStr = nextMonth.toISOString().slice(0, 7) + '-01';
-    
-    console.log(`💰 Generating rent bills for next month: ${monthStr}`);
-    
-    // Generate rent bills for all occupied apartments
-    const result = await dbQuery(`
-      INSERT INTO payments (apartment_id, renter_id, amount, month, status, due_date)
-      SELECT 
-        a.id,
-        a.current_renter_id,
-        a.rent_amount,
-        $1::date,
-        'pending',
-        DATE($1::date + INTERVAL '5 days')
-      FROM apartments a
-      WHERE a.status = 'occupied' 
-        AND a.current_renter_id IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM payments p 
-          WHERE p.apartment_id = a.id 
-            AND DATE_TRUNC('month', p.month) = DATE_TRUNC('month', $1::date)
-        )
-      RETURNING id, apartment_id, amount, due_date
-    `, [monthStr]);
-    
-    console.log(`✅ Generated ${result.rowCount} monthly rent bills`);
-    
-    // Format with Taka
-    const formattedBills = result.rows.map(bill => ({
-      ...bill,
-      amount_display: `৳${parseFloat(bill.amount).toLocaleString('en-BD')}`
-    }));
-    
-    res.status(200).json({
-      success: true,
-      data: {
-        message: `Generated ${result.rowCount} monthly rent bills`,
-        bills: formattedBills
-      }
-    });
-    
-  } catch (error: any) {
-    console.error('❌ Generate bills error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to generate monthly bills'
-    });
+    await client.query('ROLLBACK');
+    console.error('Error generating payments:', error);
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    client.release();
   }
 });
 
@@ -1180,7 +1131,6 @@ router.post('/payments/:id/verify', async (req: Request, res: Response) => {
       });
     }
     
-    // Check if payment exists and is paid
     const paymentCheck = await dbQuery(
       'SELECT id FROM payments WHERE id = $1 AND status = $2',
       [id, 'paid']
@@ -1194,21 +1144,18 @@ router.post('/payments/:id/verify', async (req: Request, res: Response) => {
       });
     }
     
-    // Check if verification already exists
     const verificationCheck = await dbQuery(
       'SELECT id FROM payment_confirmations WHERE payment_id = $1',
       [id]
     );
     
     if (verificationCheck.rows.length > 0) {
-      // Update existing verification
       await dbQuery(`
         UPDATE payment_confirmations 
         SET status = $1, verified_at = CURRENT_TIMESTAMP, notes = $2 
         WHERE payment_id = $3
       `, [status, notes, id]);
     } else {
-      // Create new verification
       await dbQuery(`
         INSERT INTO payment_confirmations (payment_id, manager_id, status, verified_at, notes)
         VALUES ($1, 1, $2, CURRENT_TIMESTAMP, $3)
@@ -1234,10 +1181,10 @@ router.post('/payments/:id/verify', async (req: Request, res: Response) => {
     });
   }
 });
-
 // ==================== RENTER MANAGEMENT ENDPOINTS ====================
 
 // GET /api/manager/renters - Get all renters (UPDATED for consistency)
+// GET /api/manager/renters - Get all renters using new structure
 router.get('/renters', async (req: Request, res: Response) => {
   try {
     console.log('📡 Fetching renters...');
@@ -1247,21 +1194,19 @@ router.get('/renters', async (req: Request, res: Response) => {
         r.*,
         a.apartment_number,
         a.floor,
-        a.rent_amount,
+        a.rent_amount as apartment_rent,
         a.status as apartment_status,
         b.name as building_name,
+        b.id as building_id,
         (
           SELECT status 
           FROM payments p 
           WHERE p.renter_id = r.id 
             AND DATE_TRUNC('month', p.month) = DATE_TRUNC('month', CURRENT_DATE)
-          ORDER BY p.due_date DESC 
           LIMIT 1
-        ) as payment_status,
-        a.lease_start,
-        a.lease_end
+        ) as current_month_payment_status
       FROM renters r
-      LEFT JOIN apartments a ON r.id = a.current_renter_id
+      LEFT JOIN apartments a ON r.apartment_id = a.id
       LEFT JOIN buildings b ON a.building_id = b.id
       WHERE r.status IN ('active', 'pending')
       ORDER BY 
@@ -1278,29 +1223,27 @@ router.get('/renters', async (req: Request, res: Response) => {
       phone: row.phone,
       apartment: row.apartment_number || 'Not assigned',
       building: row.building_name || 'Main Building',
+      building_id: row.building_id,
       status: row.status || 'pending',
-      rentPaid: row.payment_status === 'paid',
-      rentAmount: row.rent_amount || 0,
-      rentAmount_display: `৳${(row.rent_amount || 0).toLocaleString('en-BD')}`,
-      leaseStart: row.lease_start || '2024-01-01',
-      leaseEnd: row.lease_end || '2024-12-31',
+      rentPaid: row.current_month_payment_status === 'paid',
+      rentAmount: row.agreed_rent || row.apartment_rent || 0,
+      rentAmount_display: `৳${(row.agreed_rent || row.apartment_rent || 0).toLocaleString('en-BD')}`,
+      leaseStart: row.lease_start,
+      leaseEnd: row.lease_end,
       documents: ['nid', 'contract']
     }));
     
-    // Get active renters with apartments - Consistent with dashboard
-    const activeRentersQuery = await dbQuery(`
-      SELECT COUNT(DISTINCT r.id) as active_renters
-      FROM renters r
-      JOIN apartments a ON r.id = a.current_renter_id
-      WHERE r.status = 'active' AND a.status = 'occupied'
-    `);
-    const activeRenters = parseInt(activeRentersQuery.rows[0].active_renters) || 0;
+    // Get counts using new structure
+    const activeRenters = renters.filter(r => 
+      r.status === 'active' && r.apartment !== 'Not assigned'
+    ).length;
     
     const pendingRenters = renters.filter(r => r.status === 'pending').length;
     const inactiveRenters = renters.filter(r => r.status === 'inactive').length;
     
-    const totalRent = renters.reduce((sum, r) => sum + (r.rentAmount || 0), 0);
-    const collectedRent = renters.filter(r => r.rentPaid).reduce((sum, r) => sum + (r.rentAmount || 0), 0);
+    const totalRent = renters
+      .filter(r => r.status === 'active')
+      .reduce((sum, r) => sum + r.rentAmount, 0);
     
     res.status(200).json({
       success: true,
@@ -1308,24 +1251,21 @@ router.get('/renters', async (req: Request, res: Response) => {
         renters,
         summary: {
           total: renters.length,
-          active: activeRenters, // Consistent: active renters with apartments
+          active: activeRenters,
           pending: pendingRenters,
           inactive: inactiveRenters,
-          totalRent: totalRent,
+          totalRent,
           totalRent_display: `৳${totalRent.toLocaleString('en-BD')}`,
-          collectedRent: collectedRent,
-          collectedRent_display: `৳${collectedRent.toLocaleString('en-BD')}`,
-          occupancyRate: renters.length > 0 ? Math.round((activeRenters / renters.length) * 100) : 0
+          occupancyRate: renters.length > 0 
+            ? Math.round((activeRenters / renters.length) * 100) 
+            : 0
         }
       }
     });
     
   } catch (error: any) {
     console.error('❌ Get renters error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get renters'
-    });
+    res.status(500).json({ success: false, message: 'Failed to get renters' });
   }
 });
 

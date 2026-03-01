@@ -3,8 +3,6 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   FaMoneyBillWave,
-  FaHistory,
-  FaReceipt,
   FaCheckCircle,
   FaClock,
   FaExclamationTriangle,
@@ -15,11 +13,9 @@ import {
   FaCreditCard,
   FaMobileAlt,
   FaUniversity,
-  FaSearch,
-  FaFilter,
   FaSync,
-  FaCopy,
-  FaCheck
+  FaArrowRight,
+  FaEye
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
@@ -29,41 +25,55 @@ interface Payment {
   id: number;
   month: string;
   amount: number;
-  status: 'pending' | 'paid' | 'overdue' | 'partial';
+  status: string;
+  display_status: 'due_now' | 'overdue' | 'upcoming' | 'paid';
   due_date: string;
   paid_at?: string;
   payment_method?: string;
   transaction_id?: string;
   verification_status?: string;
+  can_pay: boolean;
 }
 
-interface PaymentStats {
-  totalPaid: number;
-  totalPending: number;
-  totalOverdue: number;
-  nextPayment: number;
-  nextDueDate: string;
+interface PaymentSummary {
+  total_due: number;
+  overdue_count: number;
+  due_now_count: number;
+  upcoming_count: number;
+  paid_count: number;
 }
 
 const RenterPayments = () => {
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [stats, setStats] = useState<PaymentStats>({
-    totalPaid: 0,
-    totalPending: 0,
-    totalOverdue: 0,
-    nextPayment: 0,
-    nextDueDate: ''
+  const [payments, setPayments] = useState<{
+    overdue: Payment[];
+    due_now: Payment[];
+    upcoming: Payment[];
+    paid: Payment[];
+    summary: PaymentSummary;
+    current_month: string;
+  }>({
+    overdue: [],
+    due_now: [],
+    upcoming: [],
+    paid: [],
+    summary: {
+      total_due: 0,
+      overdue_count: 0,
+      due_now_count: 0,
+      upcoming_count: 0,
+      paid_count: 0
+    },
+    current_month: ''
   });
+  
   const [loading, setLoading] = useState(true);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState('');
-  const [paymentAmount, setPaymentAmount] = useState('');
+  const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [paymentMethod, setPaymentMethod] = useState('bkash');
   const [transactionId, setTransactionId] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const [selectedDetails, setSelectedDetails] = useState<Payment | null>(null);
 
   useEffect(() => {
     fetchPayments();
@@ -79,42 +89,7 @@ const RenterPayments = () => {
       });
       
       if (response.data.success) {
-        const paymentsData = response.data.data.payments || [];
-        
-        // Convert amount strings to numbers and clean data
-        const cleanedPayments = paymentsData.map((payment: any) => ({
-          ...payment,
-          amount: cleanAndConvertAmount(payment.amount)
-        }));
-        
-        setPayments(cleanedPayments);
-        
-        // Calculate stats
-        const totalPaid = cleanedPayments
-          .filter(p => p.status === 'paid')
-          .reduce((sum, p) => sum + p.amount, 0);
-        
-        const totalPending = cleanedPayments
-          .filter(p => p.status === 'pending')
-          .reduce((sum, p) => sum + p.amount, 0);
-        
-        const totalOverdue = cleanedPayments
-          .filter(p => p.status === 'overdue')
-          .reduce((sum, p) => sum + p.amount, 0);
-        
-        const nextPayment = cleanedPayments
-          .find(p => p.status === 'pending')?.amount || 0;
-        
-        const nextDueDate = cleanedPayments
-          .find(p => p.status === 'pending')?.due_date || '';
-        
-        setStats({
-          totalPaid,
-          totalPending,
-          totalOverdue,
-          nextPayment,
-          nextDueDate
-        });
+        setPayments(response.data.data);
       }
     } catch (error) {
       console.error('Failed to fetch payments:', error);
@@ -124,175 +99,92 @@ const RenterPayments = () => {
     }
   };
 
-  // Helper function to clean and convert amount
-  const cleanAndConvertAmount = (amount: any): number => {
-    if (amount === null || amount === undefined) {
-      return 0;
-    }
-    
-    // If it's already a number, return it
-    if (typeof amount === 'number') {
-      return amount;
-    }
-    
-    // If it's a string, clean it
-    if (typeof amount === 'string') {
-      // Remove all non-numeric characters except decimal point
-      const cleaned = amount.replace(/[^\d.-]/g, '');
-      const num = parseFloat(cleaned);
-      return isNaN(num) ? 0 : num;
-    }
-    
-    // For any other type, try to convert
-    const num = Number(amount);
-    return isNaN(num) ? 0 : num;
-  };
-
-  // Helper function to format amount for display
-  const formatAmountForDisplay = (amount: any): string => {
-    const numAmount = cleanAndConvertAmount(amount);
-    
-    // Format without decimals for whole numbers
-    if (numAmount % 1 === 0) {
-      return numAmount.toLocaleString('en-BD');
-    } else {
-      return numAmount.toLocaleString('en-BD', { 
-        minimumFractionDigits: 2, 
-        maximumFractionDigits: 2 
-      });
-    }
-  };
-
-  const handleQuickPayment = (method: string, number: string) => {
-    setPaymentMethod(method);
-    toast.success(
-      <div>
-        <p className="font-medium">Selected: {method.replace('_', ' ')}</p>
-        <p className="text-sm">Send payment to: {number}</p>
-        <p className="text-xs mt-1">Enter transaction ID below</p>
-      </div>,
-      { duration: 5000 }
-    );
-    setShowPaymentModal(true);
-  };
-
   const handleMakePayment = async () => {
-    if (!selectedMonth) {
-      toast.error('Please select a month');
+    if (!selectedPayment) {
+      toast.error('No payment selected');
       return;
     }
     
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
-      toast.error('Please enter a valid amount');
-      return;
-    }
-
     if (!paymentMethod) {
       toast.error('Please select a payment method');
       return;
     }
 
-    if (!transactionId.trim()) {
-      toast.error('Please enter transaction ID');
+    // DEBUG: Log the selected payment object
+    console.log('🔍 DEBUG - Selected Payment:', {
+      id: selectedPayment.id,
+      type: typeof selectedPayment.id,
+      fullObject: selectedPayment
+    });
+
+    // Make sure payment_id is a number
+    const paymentId = Number(selectedPayment.id);
+    
+    if (isNaN(paymentId)) {
+      console.error('❌ Invalid payment ID:', selectedPayment.id);
+      toast.error('Invalid payment ID');
       return;
     }
+
+    const payload = {
+      payment_id: paymentId,  // Ensure it's a number
+      payment_method: paymentMethod,
+      ...(transactionId && transactionId.trim() ? { transaction_id: transactionId.trim() } : {})
+    };
+
+    console.log('📦 DEBUG - Sending payload:', JSON.stringify(payload, null, 2));
 
     try {
       setSubmitting(true);
       const token = localStorage.getItem('token');
       
-      const response = await axios.post(`${API_URL}/renter/payments/make`, {
-        month: selectedMonth,
-        amount: parseFloat(paymentAmount),
-        payment_method: paymentMethod,
-        transaction_id: transactionId
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
+      const response = await axios.post(`${API_URL}/renter/payments/make`, payload, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       });
       
       if (response.data.success) {
-        toast.success('Payment submitted successfully! Waiting for verification.');
+        toast.success('Payment submitted successfully!');
         setShowPaymentModal(false);
-        resetPaymentForm();
+        setSelectedPayment(null);
+        setPaymentMethod('bkash');
+        setTransactionId('');
         fetchPayments();
       }
     } catch (error: any) {
-      console.error('Failed to submit payment:', error);
-      toast.error(error.response?.data?.message || 'Failed to submit payment');
+      console.error('❌ Payment error:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message
+      });
+      const errorMessage = error.response?.data?.message || 'Failed to submit payment';
+      toast.error(errorMessage);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const resetPaymentForm = () => {
-    setSelectedMonth('');
-    setPaymentAmount('');
-    setPaymentMethod('bkash');
-    setTransactionId('');
+  const handleViewDetails = (payment: Payment) => {
+    setSelectedDetails(payment);
+    setShowDetails(true);
   };
 
-  const handleCopyTransactionId = (transactionId: string) => {
-    navigator.clipboard.writeText(transactionId);
-    setCopiedId(Date.now());
-    toast.success('Transaction ID copied to clipboard');
-    setTimeout(() => setCopiedId(null), 2000);
+  const formatCurrency = (amount: number) => {
+    return `৳${amount.toLocaleString('en-BD', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    })}`;
   };
 
-  const handleDownloadReceipt = (paymentId: number) => {
-    // Simulate receipt download
-    toast.success('Receipt downloaded successfully!');
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
   };
-
-  const handleShareReceipt = (paymentId: number) => {
-    // Simulate sharing
-    toast.success('Receipt shared!');
-  };
-
-  const handlePrintReceipt = (paymentId: number) => {
-    // Simulate printing
-    window.print();
-    toast.success('Receipt sent to printer!');
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'paid': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-      case 'overdue': return 'bg-rose-100 text-rose-700 border-rose-200';
-      case 'pending': return 'bg-amber-100 text-amber-700 border-amber-200';
-      default: return 'bg-slate-100 text-slate-700 border-slate-200';
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'paid': return <FaCheckCircle className="text-emerald-600" />;
-      case 'overdue': return <FaExclamationTriangle className="text-rose-600" />;
-      default: return <FaClock className="text-amber-600" />;
-    }
-  };
-
-  const getVerificationColor = (status?: string) => {
-    switch (status) {
-      case 'verified': return 'bg-emerald-100 text-emerald-700';
-      case 'pending_review': return 'bg-amber-100 text-amber-700';
-      default: return 'bg-slate-100 text-slate-700';
-    }
-  };
-
-  const filteredPayments = payments.filter(payment => {
-    if (filterStatus !== 'all' && payment.status !== filterStatus) return false;
-    if (searchTerm && !payment.month.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-    return true;
-  });
-
-  const upcomingMonths = [
-    { value: '2025-01-01', label: 'January 2025' },
-    { value: '2025-02-01', label: 'February 2025' },
-    { value: '2025-03-01', label: 'March 2025' },
-    { value: '2025-04-01', label: 'April 2025' },
-    { value: '2025-05-01', label: 'May 2025' },
-    { value: '2025-06-01', label: 'June 2025' }
-  ];
 
   if (loading) {
     return (
@@ -303,494 +195,439 @@ const RenterPayments = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Rent Payments</h1>
-          <p className="text-slate-600">Manage your rent payments and history</p>
+          <p className="text-slate-600">Manage your rent payments</p>
         </div>
         <button
-          onClick={() => setShowPaymentModal(true)}
-          className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 flex items-center gap-2 transition-colors"
+          onClick={fetchPayments}
+          className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+          title="Refresh"
         >
-          <FaMoneyBillWave />
-          Make Payment
+          <FaSync />
         </button>
       </div>
 
-      {/* Stats */}
+      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Total Paid</p>
-              <p className="text-2xl font-bold text-emerald-600 mt-2">
-                ৳{formatAmountForDisplay(stats.totalPaid)}
+              <p className="text-sm text-slate-600">Total Due</p>
+              <p className="text-2xl font-bold text-amber-600">
+                {formatCurrency(payments.summary.total_due)}
               </p>
             </div>
-            <FaCheckCircle className="text-2xl text-emerald-500" />
+            <FaMoneyBillWave className="text-2xl text-amber-500" />
           </div>
         </div>
-        
-        <div className="bg-white rounded-xl border p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Pending</p>
-              <p className="text-2xl font-bold text-amber-600 mt-2">
-                ৳{formatAmountForDisplay(stats.totalPending)}
-              </p>
-            </div>
-            <FaClock className="text-2xl text-amber-500" />
-          </div>
-        </div>
-        
+
         <div className="bg-white rounded-xl border p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-slate-600">Overdue</p>
-              <p className="text-2xl font-bold text-rose-600 mt-2">
-                ৳{formatAmountForDisplay(stats.totalOverdue)}
-              </p>
+              <p className="text-2xl font-bold text-rose-600">{payments.summary.overdue_count}</p>
             </div>
             <FaExclamationTriangle className="text-2xl text-rose-500" />
           </div>
         </div>
-        
+
         <div className="bg-white rounded-xl border p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Next Due</p>
-              <p className="text-lg font-bold text-slate-900 mt-2">
-                {stats.nextDueDate ? new Date(stats.nextDueDate).toLocaleDateString('en-US', { 
-                  day: 'numeric',
-                  month: 'short'
-                }) : 'N/A'}
-              </p>
-              <p className="text-xs text-slate-500">৳{formatAmountForDisplay(stats.nextPayment)}</p>
+              <p className="text-sm text-slate-600">Current Month</p>
+              <p className="text-2xl font-bold text-blue-600">{payments.summary.due_now_count}</p>
             </div>
-            <FaCalendar className="text-2xl text-blue-500" />
+            <FaClock className="text-2xl text-blue-500" />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-slate-600">Paid History</p>
+              <p className="text-2xl font-bold text-emerald-600">{payments.summary.paid_count}</p>
+            </div>
+            <FaCheckCircle className="text-2xl text-emerald-500" />
           </div>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl border p-4 shadow-sm">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <div className="relative">
-              <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search by month..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
+      {/* Overdue Payments Section */}
+      {payments.overdue.length > 0 && (
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <div className="bg-rose-50 px-6 py-4 border-b border-rose-200">
+            <h2 className="text-lg font-bold text-rose-800 flex items-center gap-2">
+              <FaExclamationTriangle />
+              Overdue Payments - Please Pay Immediately
+            </h2>
+          </div>
+          <div className="divide-y divide-slate-200">
+            {payments.overdue.map(payment => (
+              <PaymentRow
+                key={payment.id}
+                payment={payment}
+                onPay={() => {
+                  setSelectedPayment(payment);
+                  setShowPaymentModal(true);
+                }}
+                onViewDetails={() => handleViewDetails(payment)}
+                formatCurrency={formatCurrency}
+                formatDate={formatDate}
               />
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
-            >
-              <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="paid">Paid</option>
-              <option value="overdue">Overdue</option>
-            </select>
-            <button
-              onClick={fetchPayments}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-              title="Refresh"
-            >
-              <FaSync />
-            </button>
+            ))}
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Payment Methods Quick Select - FIXED with onClick handlers */}
-      <div className="bg-white rounded-xl border p-6 shadow-sm">
-        <h3 className="font-bold text-slate-900 mb-4">Quick Payment Methods</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <button 
-            onClick={() => handleQuickPayment('bkash', '016XXXXXXXX')}
-            className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors group"
-          >
-            <div className="flex flex-col items-center gap-2">
-              <FaMobileAlt className="text-xl text-green-600 group-hover:scale-110 transition-transform" />
-              <span className="font-medium">bKash</span>
-              <span className="text-sm text-slate-500">016XXXXXXXX</span>
-            </div>
-          </button>
-          
-          <button 
-            onClick={() => handleQuickPayment('nagad', '017XXXXXXXX')}
-            className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors group"
-          >
-            <div className="flex flex-col items-center gap-2">
-              <FaMobileAlt className="text-xl text-red-600 group-hover:scale-110 transition-transform" />
-              <span className="font-medium">Nagad</span>
-              <span className="text-sm text-slate-500">017XXXXXXXX</span>
-            </div>
-          </button>
-          
-          <button 
-            onClick={() => handleQuickPayment('bank_transfer', 'DBBL Savings A/C: 123-456-789')}
-            className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors group"
-          >
-            <div className="flex flex-col items-center gap-2">
-              <FaUniversity className="text-xl text-blue-600 group-hover:scale-110 transition-transform" />
-              <span className="font-medium">Bank Transfer</span>
-              <span className="text-sm text-slate-500">DBBL 123-456-789</span>
-            </div>
-          </button>
-          
-          <button 
-            onClick={() => handleQuickPayment('card', 'Visa/Mastercard')}
-            className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors group"
-          >
-            <div className="flex flex-col items-center gap-2">
-              <FaCreditCard className="text-xl text-purple-600 group-hover:scale-110 transition-transform" />
-              <span className="font-medium">Card Payment</span>
-              <span className="text-sm text-slate-500">Visa/Mastercard</span>
-            </div>
-          </button>
-        </div>
-      </div>
-
-      {/* Payments Table */}
-      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="p-4 text-left text-sm font-medium text-slate-700">Month</th>
-                <th className="p-4 text-left text-sm font-medium text-slate-700">Amount</th>
-                <th className="p-4 text-left text-sm font-medium text-slate-700">Due Date</th>
-                <th className="p-4 text-left text-sm font-medium text-slate-700">Status</th>
-                <th className="p-4 text-left text-sm font-medium text-slate-700">Verification</th>
-                <th className="p-4 text-left text-sm font-medium text-slate-700">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {filteredPayments.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="p-8 text-center">
-                    <div className="flex flex-col items-center justify-center">
-                      <FaReceipt className="text-4xl text-slate-300 mb-4" />
-                      <p className="text-slate-500 text-lg font-medium">No payments found</p>
-                      <p className="text-slate-400 text-sm mt-1">Try adjusting your filters</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                filteredPayments.map((payment) => (
-                  <tr key={payment.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-4">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-violet-100 rounded-lg">
-                          <FaCalendar className="text-violet-600" />
-                        </div>
-                        <div>
-                          <p className="font-medium">{payment.month}</p>
-                          {payment.paid_at && (
-                            <p className="text-xs text-slate-500">
-                              Paid: {new Date(payment.paid_at).toLocaleDateString()}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-lg">৳</span>
-                        <p className="text-xl font-bold text-slate-900">
-                          {formatAmountForDisplay(payment.amount)}
-                        </p>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <FaCalendar className="text-slate-400" />
-                        <span>{new Date(payment.due_date).toLocaleDateString()}</span>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(payment.status)}
-                        <span className={`px-3 py-1.5 rounded-full text-xs font-medium ${getStatusColor(payment.status)}`}>
-                          {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      {payment.verification_status ? (
-                        <span className={`px-3 py-1.5 rounded-full text-xs font-medium ${getVerificationColor(payment.verification_status)}`}>
-                          {payment.verification_status.replace('_', ' ')}
-                        </span>
-                      ) : (
-                        <span className="px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700">
-                          Not submitted
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        {payment.status === 'paid' && (
-                          <>
-                            <button
-                              onClick={() => handleDownloadReceipt(payment.id)}
-                              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                              title="Download Receipt"
-                            >
-                              <FaDownload />
-                            </button>
-                            <button
-                              onClick={() => handlePrintReceipt(payment.id)}
-                              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                              title="Print Receipt"
-                            >
-                              <FaPrint />
-                            </button>
-                            <button
-                              onClick={() => handleShareReceipt(payment.id)}
-                              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                              title="Share Receipt"
-                            >
-                              <FaShare />
-                            </button>
-                            {payment.transaction_id && (
-                              <button
-                                onClick={() => handleCopyTransactionId(payment.transaction_id!)}
-                                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                                title="Copy Transaction ID"
-                              >
-                                {copiedId === payment.id ? <FaCheck className="text-emerald-600" /> : <FaCopy />}
-                              </button>
-                            )}
-                          </>
-                        )}
-                        {payment.status === 'pending' && (
-                          <button
-                            onClick={() => {
-                              setSelectedMonth(payment.month);
-                              setPaymentAmount(payment.amount.toString());
-                              setShowPaymentModal(true);
-                            }}
-                            className="px-3 py-1.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 text-sm transition-colors"
-                          >
-                            Pay Now
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Payment History Summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <FaHistory className="text-violet-600" />
-            Payment History Summary
-          </h3>
-          <div className="space-y-4">
-            <div className="flex justify-between items-center p-3 bg-slate-50 rounded-lg">
-              <span className="text-slate-600">Total Payments Made</span>
-              <span className="font-bold text-slate-900">{payments.filter(p => p.status === 'paid').length}</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-              <span className="text-emerald-700">On-time Payments</span>
-              <span className="font-bold text-emerald-700">
-                {payments.filter(p => 
-                  p.status === 'paid' && 
-                  p.paid_at && 
-                  new Date(p.paid_at) <= new Date(p.due_date)
-                ).length}
-              </span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-rose-50 rounded-lg border border-rose-200">
-              <span className="text-rose-700">Late Payments</span>
-              <span className="font-bold text-rose-700">
-                {payments.filter(p => 
-                  p.status === 'paid' && 
-                  p.paid_at && 
-                  new Date(p.paid_at) > new Date(p.due_date)
-                ).length}
-              </span>
-            </div>
+      {/* Current Month Due Section */}
+      {payments.due_now.length > 0 && (
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <div className="bg-blue-50 px-6 py-4 border-b border-blue-200">
+            <h2 className="text-lg font-bold text-blue-800 flex items-center gap-2">
+              <FaClock />
+              Current Month Due
+            </h2>
+          </div>
+          <div className="divide-y divide-slate-200">
+            {payments.due_now.map(payment => (
+              <PaymentRow
+                key={payment.id}
+                payment={payment}
+                onPay={() => {
+                  setSelectedPayment(payment);
+                  setShowPaymentModal(true);
+                }}
+                onViewDetails={() => handleViewDetails(payment)}
+                formatCurrency={formatCurrency}
+                formatDate={formatDate}
+              />
+            ))}
           </div>
         </div>
+      )}
 
-        <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <h3 className="font-bold text-slate-900 mb-4">Payment Tips</h3>
-          <ul className="space-y-3">
-            <li className="flex items-start gap-2">
-              <FaCheckCircle className="text-emerald-600 mt-1 flex-shrink-0" />
-              <span className="text-slate-700">Pay before due date to avoid late fees</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <FaCheckCircle className="text-emerald-600 mt-1 flex-shrink-0" />
-              <span className="text-slate-700">Keep transaction IDs for future reference</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <FaCheckCircle className="text-emerald-600 mt-1 flex-shrink-0" />
-              <span className="text-slate-700">Payments are verified within 24 hours</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <FaCheckCircle className="text-emerald-600 mt-1 flex-shrink-0" />
-              <span className="text-slate-700">Contact manager if payment not verified after 48 hours</span>
-            </li>
-          </ul>
+      {/* Upcoming Payments Section */}
+      {payments.upcoming.length > 0 && (
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
+            <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+              <FaCalendar />
+              Upcoming Payments
+            </h2>
+            <p className="text-sm text-slate-600 mt-1">
+              These payments will be available on the 1st of each month
+            </p>
+          </div>
+          <div className="divide-y divide-slate-200">
+            {payments.upcoming.map(payment => (
+              <PaymentRow
+                key={payment.id}
+                payment={payment}
+                onViewDetails={() => handleViewDetails(payment)}
+                formatCurrency={formatCurrency}
+                formatDate={formatDate}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Payment Modal - FIXED with better UX */}
-      {showPaymentModal && (
+      {/* Paid History Section */}
+      {payments.paid.length > 0 && (
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <div className="bg-emerald-50 px-6 py-4 border-b border-emerald-200">
+            <h2 className="text-lg font-bold text-emerald-800 flex items-center gap-2">
+              <FaCheckCircle />
+              Payment History
+            </h2>
+          </div>
+          <div className="divide-y divide-slate-200">
+            {payments.paid.map(payment => (
+              <PaymentRow
+                key={payment.id}
+                payment={payment}
+                onViewDetails={() => handleViewDetails(payment)}
+                formatCurrency={formatCurrency}
+                formatDate={formatDate}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {showPaymentModal && selectedPayment && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-md w-full">
             <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold text-slate-900">Make Payment</h3>
-                <button
-                  onClick={() => {
-                    setShowPaymentModal(false);
-                    resetPaymentForm();
-                  }}
-                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-                >
-                  ✕
-                </button>
+              <h3 className="text-xl font-bold text-slate-900 mb-4">Make Payment</h3>
+              
+              <div className="bg-slate-50 p-4 rounded-lg mb-4">
+                <p className="text-sm text-slate-600">Payment For:</p>
+                <p className="font-bold text-lg">{formatDate(selectedPayment.month)}</p>
+                <p className="text-2xl font-bold text-violet-600 mt-2">
+                  {formatCurrency(selectedPayment.amount)}
+                </p>
+                {selectedPayment.display_status === 'overdue' && (
+                  <p className="text-xs text-rose-600 mt-1 flex items-center gap-1">
+                    <FaExclamationTriangle />
+                    This payment is overdue
+                  </p>
+                )}
               </div>
 
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Payment Month *
-                  </label>
-                  <select
-                    value={selectedMonth}
-                    onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
-                    required
-                  >
-                    <option value="">Select Month</option>
-                    {upcomingMonths.map(month => (
-                      <option key={month.value} value={month.value}>
-                        {month.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Amount (৳) *
-                  </label>
-                  <input
-                    type="number"
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                    placeholder="Enter amount"
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
-                    required
-                    min="1"
-                    step="1"
-                  />
-                </div>
-
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
                     Payment Method *
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     {[
-                      { value: 'bkash', label: 'bKash', icon: <FaMobileAlt className="text-green-600" /> },
-                      { value: 'nagad', label: 'Nagad', icon: <FaMobileAlt className="text-red-600" /> },
-                      { value: 'bank_transfer', label: 'Bank Transfer', icon: <FaUniversity className="text-blue-600" /> },
-                      { value: 'cash', label: 'Cash', icon: <FaMoneyBillWave className="text-slate-600" /> }
+                      { value: 'bkash', label: 'bKash', icon: <FaMobileAlt className="text-pink-600" /> },
+                      { value: 'nagad', label: 'Nagad', icon: <FaMobileAlt className="text-orange-600" /> },
+                      { value: 'bank_transfer', label: 'Bank', icon: <FaUniversity className="text-blue-600" /> },
+                      { value: 'cash', label: 'Cash', icon: <FaMoneyBillWave className="text-green-600" /> }
                     ].map(method => (
-                      <label
+                      <button
                         key={method.value}
-                        className={`p-3 border rounded-lg cursor-pointer flex items-center justify-center gap-2 transition-all ${
-                          paymentMethod === method.value 
-                            ? 'border-violet-600 bg-violet-50 ring-2 ring-violet-200' 
-                            : 'hover:bg-slate-50 hover:border-slate-400'
+                        onClick={() => setPaymentMethod(method.value)}
+                        className={`p-3 border rounded-lg flex items-center justify-center gap-2 transition-colors ${
+                          paymentMethod === method.value
+                            ? 'border-violet-600 bg-violet-50'
+                            : 'hover:bg-slate-50'
                         }`}
                       >
-                        <input
-                          type="radio"
-                          name="paymentMethod"
-                          value={method.value}
-                          checked={paymentMethod === method.value}
-                          onChange={(e) => setPaymentMethod(e.target.value)}
-                          className="hidden"
-                        />
                         {method.icon}
-                        <span className="font-medium capitalize">{method.label}</span>
-                      </label>
+                        <span className="capitalize">{method.label}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Transaction ID / Reference *
+                    Transaction ID (Optional)
                   </label>
                   <input
                     type="text"
                     value={transactionId}
                     onChange={(e) => setTransactionId(e.target.value)}
-                    placeholder="Enter transaction ID"
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
-                    required
+                    placeholder="Enter transaction ID if applicable"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2"
                   />
                   <p className="text-xs text-slate-500 mt-1">
-                    Enter the transaction ID from your payment confirmation
+                    For cash payments, you can leave this blank
                   </p>
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 mt-8">
+              <div className="flex gap-3 mt-6">
                 <button
                   onClick={() => {
                     setShowPaymentModal(false);
-                    resetPaymentForm();
+                    setSelectedPayment(null);
+                    setPaymentMethod('bkash');
+                    setTransactionId('');
                   }}
-                  className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
-                  disabled={submitting}
+                  className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleMakePayment}
                   disabled={submitting}
-                  className={`px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors flex items-center gap-2 ${
-                    submitting ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
+                  className="flex-1 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50"
                 >
-                  {submitting ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
-                      Processing...
-                    </>
-                  ) : (
-                    'Submit Payment'
-                  )}
+                  {submitting ? 'Processing...' : 'Pay Now'}
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* Details Modal */}
+      {showDetails && selectedDetails && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl max-w-lg w-full">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold text-slate-900">Payment Details</h3>
+                <button
+                  onClick={() => setShowDetails(false)}
+                  className="p-2 hover:bg-slate-100 rounded-lg"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-slate-50 p-3 rounded-lg">
+                    <p className="text-sm text-slate-600">Month</p>
+                    <p className="font-medium">{formatDate(selectedDetails.month)}</p>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-lg">
+                    <p className="text-sm text-slate-600">Amount</p>
+                    <p className="font-bold text-lg">{formatCurrency(selectedDetails.amount)}</p>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-lg">
+                    <p className="text-sm text-slate-600">Due Date</p>
+                    <p className="font-medium">{formatDate(selectedDetails.due_date)}</p>
+                  </div>
+                  <div className="bg-slate-50 p-3 rounded-lg">
+                    <p className="text-sm text-slate-600">Status</p>
+                    <p className={`font-medium ${
+                      selectedDetails.display_status === 'paid' ? 'text-emerald-600' :
+                      selectedDetails.display_status === 'overdue' ? 'text-rose-600' :
+                      selectedDetails.display_status === 'due_now' ? 'text-amber-600' :
+                      'text-slate-600'
+                    }`}>
+                      {selectedDetails.display_status.replace('_', ' ').toUpperCase()}
+                    </p>
+                  </div>
+                </div>
+
+                {selectedDetails.paid_at && (
+                  <>
+                    <div className="border-t pt-4">
+                      <h4 className="font-medium mb-2">Payment Information</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm text-slate-600">Paid On</p>
+                          <p className="font-medium">{formatDate(selectedDetails.paid_at)}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-600">Method</p>
+                          <p className="font-medium capitalize">{selectedDetails.payment_method || 'N/A'}</p>
+                        </div>
+                        {selectedDetails.transaction_id && (
+                          <div className="col-span-2">
+                            <p className="text-sm text-slate-600">Transaction ID</p>
+                            <p className="font-mono text-sm">{selectedDetails.transaction_id}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {selectedDetails.verification_status && (
+                      <div className="bg-amber-50 p-3 rounded-lg">
+                        <p className="text-sm text-amber-700">
+                          Verification Status: {selectedDetails.verification_status.replace('_', ' ')}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="flex justify-end mt-6">
+                <button
+                  onClick={() => setShowDetails(false)}
+                  className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Payment Row Component - FIXED with proper props interface
+interface PaymentRowProps {
+  payment: Payment;
+  onPay?: () => void;
+  onViewDetails: () => void;
+  formatCurrency: (amount: number) => string;
+  formatDate: (date: string) => string;
+}
+
+const PaymentRow = ({ 
+  payment, 
+  onPay, 
+  onViewDetails, 
+  formatCurrency, 
+  formatDate 
+}: PaymentRowProps) => {
+  // Determine status based on payment.display_status
+  const isPaid = payment.display_status === 'paid';
+  const isUpcoming = payment.display_status === 'upcoming';
+  const isOverdue = payment.display_status === 'overdue';
+  const isDueNow = payment.display_status === 'due_now';
+
+  return (
+    <div className="p-4 hover:bg-slate-50 transition-colors">
+      <div className="flex items-center justify-between">
+        <div className="flex-1">
+          <div className="flex items-center gap-4">
+            <div className="w-24">
+              <p className="font-medium text-slate-900">
+                {new Date(payment.month).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+              </p>
+            </div>
+            <div className="w-24">
+              <p className="font-bold text-slate-900">{formatCurrency(payment.amount)}</p>
+            </div>
+            <div className="w-32">
+              <p className="text-sm text-slate-600">Due: {formatDate(payment.due_date)}</p>
+            </div>
+            <div className="w-32">
+              {isPaid ? (
+                <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-sm">
+                  <FaCheckCircle className="text-xs" />
+                  Paid
+                </span>
+              ) : isUpcoming ? (
+                <span className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-sm">
+                  <FaCalendar className="text-xs" />
+                  Upcoming
+                </span>
+              ) : isOverdue ? (
+                <span className="inline-flex items-center gap-1 px-3 py-1 bg-rose-100 text-rose-700 rounded-full text-sm">
+                  <FaExclamationTriangle className="text-xs" />
+                  Overdue
+                </span>
+              ) : isDueNow ? (
+                <span className="inline-flex items-center gap-1 px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-sm">
+                  <FaClock className="text-xs" />
+                  Due Now
+                </span>
+              ) : null}
+            </div>
+            {payment.verification_status === 'pending_review' && (
+              <div className="w-32">
+                <span className="text-xs text-amber-600">Pending verification</span>
+              </div>
+            )}
+            <div>
+              <button
+                onClick={onViewDetails}
+                className="p-2 hover:bg-slate-100 rounded-lg"
+                title="View Details"
+              >
+                <FaEye className="text-slate-600" />
+              </button>
+            </div>
+          </div>
+        </div>
+        {!isPaid && !isUpcoming && onPay && (
+          <button
+            onClick={onPay}
+            className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 text-sm flex items-center gap-2"
+          >
+            Pay Now
+            <FaArrowRight className="text-xs" />
+          </button>
+        )}
+      </div>
     </div>
   );
 };
