@@ -832,10 +832,10 @@ router.get('/complaints/needs-confirmation', async (req: Request, res: Response)
 
 // GET /api/manager/payments - Get rent payments
 // GET /api/manager/payments - Get rent payments with status grouping
-// GET /api/manager/payments - FIXED for new schema
+// GET /api/manager/payments - Enhanced with better filtering
 router.get('/payments', async (req: Request, res: Response) => {
   try {
-    const { month, status, renter_id, page = 1, limit = 20 } = req.query;
+    const { month, year, status, renter_id, page = 1, limit = 20 } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
     const today = new Date();
     const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -851,6 +851,8 @@ router.get('/payments', async (req: Request, res: Response) => {
         b.name as building_name,
         pc.status as confirmation_status,
         pc.verified_at,
+        EXTRACT(YEAR FROM p.month) as year,
+        TO_CHAR(p.month, 'Mon YYYY') as month_display,
         CASE 
           WHEN p.status = 'paid' THEN 'paid'
           WHEN p.status = 'pending' AND p.month < $1::date THEN 'overdue'
@@ -868,13 +870,22 @@ router.get('/payments', async (req: Request, res: Response) => {
     const params: any[] = [currentMonth];
     let paramCount = 1;
     
-    if (month && month !== 'all') {
+    // Year filter
+    if (year && year !== 'all' && year !== 'undefined') {
+      paramCount++;
+      params.push(parseInt(year as string));
+      query += ` AND EXTRACT(YEAR FROM p.month) = $${paramCount}`;
+    }
+    
+    // Month filter
+    if (month && month !== 'all' && month !== 'undefined') {
       paramCount++;
       params.push(month);
       query += ` AND DATE_TRUNC('month', p.month) = DATE_TRUNC('month', $${paramCount}::date)`;
     }
     
-    if (status && status !== 'all') {
+    // Status filter
+    if (status && status !== 'all' && status !== 'undefined') {
       if (status === 'overdue') {
         query += ` AND p.status = 'pending' AND p.month < $1::date`;
       } else if (status === 'pending') {
@@ -886,7 +897,8 @@ router.get('/payments', async (req: Request, res: Response) => {
       }
     }
     
-    if (renter_id && renter_id !== 'all') {
+    // Renter filter
+    if (renter_id && renter_id !== 'all' && renter_id !== 'undefined') {
       paramCount++;
       params.push(renter_id);
       query += ` AND p.renter_id = $${paramCount}`;
@@ -894,11 +906,11 @@ router.get('/payments', async (req: Request, res: Response) => {
     
     // Get total count
     const countQuery = query.replace(
-      'SELECT p.*, a.apartment_number, a.floor, r.name as renter_name, r.email as renter_email, r.phone as renter_phone, b.name as building_name, pc.status as confirmation_status, pc.verified_at',
+      'SELECT p.*, a.apartment_number, a.floor, r.name as renter_name, r.email as renter_email, r.phone as renter_phone, b.name as building_name, pc.status as confirmation_status, pc.verified_at, EXTRACT(YEAR FROM p.month) as year, TO_CHAR(p.month, \'Mon YYYY\') as month_display',
       'SELECT COUNT(*) as total'
     );
     const countResult = await dbQuery(countQuery, params);
-    const total = parseInt(countResult.rows[0].total) || 0;
+    const total = parseInt(countResult.rows[0]?.total) || 0;
     
     // Add pagination
     query += ` ORDER BY p.month DESC, a.apartment_number 
@@ -907,7 +919,21 @@ router.get('/payments', async (req: Request, res: Response) => {
     
     const result = await dbQuery(query, params);
     
-    // Calculate summary stats
+    // Get filter options
+    const yearsResult = await dbQuery(`
+      SELECT DISTINCT EXTRACT(YEAR FROM month) as year
+      FROM payments ORDER BY year DESC
+    `);
+    
+    const rentersResult = await dbQuery(`
+      SELECT DISTINCT r.id, r.name
+      FROM renters r
+      JOIN payments p ON r.id = p.renter_id
+      WHERE r.status = 'active'
+      ORDER BY r.name
+    `);
+    
+    // Calculate summary
     const summary = {
       total_pending: result.rows.filter((p: any) => p.display_status === 'pending').length,
       total_overdue: result.rows.filter((p: any) => p.display_status === 'overdue').length,
@@ -928,6 +954,11 @@ router.get('/payments', async (req: Request, res: Response) => {
       data: {
         payments: result.rows,
         summary,
+        filters: {
+          years: yearsResult.rows.map(y => y.year),
+          renters: rentersResult.rows,
+          statuses: ['all', 'paid', 'pending', 'overdue']
+        },
         pagination: {
           total,
           page: parseInt(page as string),
@@ -2681,11 +2712,12 @@ router.get('/messages', authenticate, async (req: Request, res: Response) => {
 
 
 // Send a message
-// In your POST /messages endpoint (around line 1450)
 router.post('/messages', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).managerId;
     const { receiverId, message, role } = req.body;
+
+    console.log('📨 Sending message:', { userId, receiverId, message, role }); // Add logging
 
     if (!receiverId || !message || !role) {
       return res.status(400).json({
@@ -2700,8 +2732,21 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
       WHERE m.user_id = $1
     `, [userId]);
     
+    if (managerResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Manager not found'
+      });
+    }
+    
     const managerId = managerResult.rows[0].id;
     const managerName = managerResult.rows[0].name;
+
+    // FIX: Properly construct the receiver_id with underscore
+    const receiverString = `${role}_${receiverId}`;
+    const senderString = `manager_${managerId}`;
+
+    console.log('Message strings:', { senderString, receiverString }); // Add logging
 
     // Save to database
     const result = await dbQuery(`
@@ -2712,35 +2757,23 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
         created_at,
         is_read
       ) VALUES (
-        'manager_' || $1,
-        $2 || '_' || $3,
-        $4,
+        $1,
+        $2,
+        $3,
         NOW(),
         false
       ) RETURNING *
-    `, [managerId, role, receiverId, message]);
+    `, [senderString, receiverString, message]);
 
-    // ADD THIS: Emit socket event for real-time update
-    const io = req.app.get('io');
-    io.to(`${role}_${receiverId}`).emit('new_message', {
-      ...result.rows[0],
-      is_own: false,
-      sender_name: managerName,
-      timestamp: new Date()
-    });
-
-    // Also emit unread count update
-    io.to(`${role}_${receiverId}`).emit('unread_count_update', {
-      senderId: managerId,
-      senderRole: 'manager',
-      unreadCount: 1 // You might want to calculate actual count
-    });
+    console.log('✅ Message inserted:', result.rows[0]);
 
     res.status(200).json({
       success: true,
       data: {
         message: {
-          ...result.rows[0],
+          id: result.rows[0].id,
+          message: result.rows[0].message,
+          timestamp: result.rows[0].created_at,
           is_own: true,
           sender_name: managerName || 'Manager',
           status: 'sent'
@@ -2749,7 +2782,7 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
     });
     
   } catch (error: any) {
-    console.error('Error sending message:', error);
+    console.error('❌ Error sending message:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to send message',
@@ -2758,7 +2791,6 @@ router.post('/messages', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-// In your GET /messages/:userId endpoint (around line 1400)
 router.get('/messages/:userId', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).managerId;
@@ -2779,6 +2811,10 @@ router.get('/messages/:userId', authenticate, async (req: Request, res: Response
     
     const managerId = managerResult.rows[0].id;
 
+    // Construct the ID strings properly
+    const managerString = `manager_${managerId}`;
+    const otherString = `${role}_${otherUserId}`;
+
     const messages = await dbQuery(`
       SELECT 
         m.id,
@@ -2786,50 +2822,38 @@ router.get('/messages/:userId', authenticate, async (req: Request, res: Response
         m.created_at as timestamp,
         m.is_read,
         CASE 
-          WHEN m.sender_id = 'manager_' || $1 THEN true
+          WHEN m.sender_id = $1 THEN true
           ELSE false
         END as is_own,
         CASE 
-          WHEN m.sender_id = 'manager_' || $1 THEN 'sent'
           WHEN m.is_read THEN 'read'
           ELSE 'delivered'
         END as status,
-        COALESCE(u.name, 'Unknown') as sender_name
+        CASE 
+          WHEN m.sender_id = $1 THEN 'You'
+          ELSE COALESCE(u.name, 'Unknown')
+        END as sender_name
       FROM messages m
       LEFT JOIN ${role === 'renter' ? 'renters' : 'owners'} u ON 
         CASE 
-          WHEN m.sender_id = '${role}_' || $2 THEN u.id = $2::integer
+          WHEN m.sender_id = $2 THEN u.id = $3::integer
           ELSE false
         END
       WHERE 
-        (m.sender_id = 'manager_' || $1 AND m.receiver_id = '${role}_' || $2) OR
-        (m.sender_id = '${role}_' || $2 AND m.receiver_id = 'manager_' || $1)
+        (m.sender_id = $1 AND m.receiver_id = $2) OR
+        (m.sender_id = $2 AND m.receiver_id = $1)
       ORDER BY m.created_at ASC
-    `, [managerId, otherUserId]);
+    `, [managerString, otherString, otherUserId]);
 
     // Mark messages as read
     await dbQuery(`
       UPDATE messages 
       SET is_read = true 
       WHERE 
-        receiver_id = 'manager_' || $1 AND
-        sender_id = $2 || '_' || $3 AND
+        receiver_id = $1 AND
+        sender_id = $2 AND
         is_read = false
-    `, [managerId, role, otherUserId]);
-
-    // ADD THIS: Emit read receipt
-    const io = req.app.get('io');
-    io.to(`${role}_${otherUserId}`).emit('messages_read_receipt', {
-      readerId: managerId,
-      readerRole: 'manager',
-      timestamp: new Date()
-    });
-
-    // Also emit unread cleared for this conversation
-    io.to(`manager_${managerId}`).emit('unread_cleared', {
-      conversationId: otherUserId,
-      conversationRole: role
-    });
+    `, [managerString, otherString]);
 
     res.status(200).json({
       success: true,
@@ -2847,8 +2871,6 @@ router.get('/messages/:userId', authenticate, async (req: Request, res: Response
     });
   }
 });
-
-// Add to manager.routes.ts
 
 // GET /api/manager/buildings - Get all buildings
 router.get('/buildings', authenticate, authorizeManager, async (req: Request, res: Response) => {
@@ -2888,6 +2910,7 @@ router.get('/buildings/:id/available-apartments', authenticate, authorizeManager
 
 // POST /api/manager/renters - Add new renter
 // POST /api/manager/renters - Add new renter (WITH VALIDATION)
+// POST /api/manager/renters - Add new renter (WITH PAYMENT GENERATION)
 router.post('/renters', authenticate, authorizeManager, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
@@ -2899,8 +2922,6 @@ router.post('/renters', authenticate, authorizeManager, async (req: Request, res
     console.log('📝 Adding new renter:', { name, email, apartment_id });
 
     // ============ VALIDATION ============
-    
-    // Validate email
     if (!validateEmail(email)) {
       return res.status(400).json({ 
         success: false, 
@@ -2908,7 +2929,6 @@ router.post('/renters', authenticate, authorizeManager, async (req: Request, res
       });
     }
 
-    // Validate phone
     if (!validatePhone(phone)) {
       return res.status(400).json({ 
         success: false, 
@@ -2916,7 +2936,6 @@ router.post('/renters', authenticate, authorizeManager, async (req: Request, res
       });
     }
 
-    // Validate NID if provided
     if (nid_number && !validateNID(nid_number)) {
       return res.status(400).json({ 
         success: false, 
@@ -2924,7 +2943,6 @@ router.post('/renters', authenticate, authorizeManager, async (req: Request, res
       });
     }
 
-    // Validate required fields
     if (!name || !email || !phone || !apartment_id || !rentAmount || !leaseStart || !leaseEnd) {
       return res.status(400).json({ 
         success: false, 
@@ -2932,42 +2950,50 @@ router.post('/renters', authenticate, authorizeManager, async (req: Request, res
       });
     }
 
-    // Validate lease dates
     if (new Date(leaseStart) >= new Date(leaseEnd)) {
       return res.status(400).json({ 
         success: false, 
         message: 'Lease end date must be after lease start date' 
       });
     }
-
     // ============ END VALIDATION ============
 
     await client.query('BEGIN');
 
     // Check if apartment is available
     const apartmentCheck = await client.query(
-      'SELECT status FROM apartments WHERE id = $1',
+      'SELECT id, status FROM apartments WHERE id = $1',
       [apartment_id]
     );
+    
+    if (apartmentCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, message: 'Apartment not found' });
+    }
     
     if (apartmentCheck.rows[0]?.status !== 'vacant') {
       await client.query('ROLLBACK');
       return res.status(400).json({ success: false, message: 'Apartment is not available' });
     }
 
-    // Create user account
+    // Create user account with demo123 password
     const userResult = await client.query(`
       INSERT INTO users (username, password_hash, role, email, phone, "isActive")
       VALUES ($1, $2, 'renter', $3, $4, true)
       RETURNING id
     `, [email.split('@')[0], '$2a$10$JTKgZtabSdN8WLhKOhvwveTntvCbsTVXz1xu7/E/ntpR.ZbZE1/Hi', email, phone]);
 
-    // Create renter record
+    // Create renter record with apartment_id
     const renterResult = await client.query(`
-      INSERT INTO renters (user_id, name, email, phone, nid_number, emergency_contact, occupation, status)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
+      INSERT INTO renters (
+        user_id, name, email, phone, nid_number, emergency_contact, occupation, 
+        status, apartment_id, agreed_rent, lease_start, lease_end
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, $10, $11)
       RETURNING id
-    `, [userResult.rows[0].id, name, email, phone, nid_number, emergency_contact, occupation]);
+    `, [userResult.rows[0].id, name, email, phone, nid_number, emergency_contact, 
+        occupation, apartment_id, rentAmount, leaseStart, leaseEnd]);
+
+    const renterId = renterResult.rows[0].id;
 
     // Update apartment
     await client.query(`
@@ -2976,20 +3002,50 @@ router.post('/renters', authenticate, authorizeManager, async (req: Request, res
           rent_amount = $2, lease_start = $3, lease_end = $4,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = $5
-    `, [renterResult.rows[0].id, rentAmount, leaseStart, leaseEnd, apartment_id]);
+    `, [renterId, rentAmount, leaseStart, leaseEnd, apartment_id]);
+
+    // GENERATE ALL PAYMENTS (past months as paid, current as pending, future as pending)
+    await client.query('SELECT generate_renter_payments($1)', [renterId]);
 
     await client.query('COMMIT');
 
-    res.json({ 
+    // Fetch the complete renter data with payments
+    const newRenter = await client.query(`
+      SELECT 
+        r.*,
+        a.apartment_number,
+        a.floor,
+        b.name as building_name,
+        (
+          SELECT json_agg(
+            json_build_object(
+              'month', month,
+              'amount', amount,
+              'status', status,
+              'due_date', due_date,
+              'paid_at', paid_at
+            ) ORDER BY month DESC
+          )
+          FROM payments 
+          WHERE renter_id = r.id
+        ) as payments
+      FROM renters r
+      LEFT JOIN apartments a ON r.apartment_id = a.id
+      LEFT JOIN buildings b ON a.building_id = b.id
+      WHERE r.id = $1
+    `, [renterId]);
+
+    res.status(201).json({ 
       success: true, 
       data: { 
-        renterId: renterResult.rows[0].id,
-        message: 'Renter added successfully' 
+        renter: newRenter.rows[0],
+        message: `Renter added successfully with all payments. Past months marked as paid.` 
       } 
     });
+    
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Failed to add renter:', error);
+    console.error('❌ Failed to add renter:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Failed to add renter. Please check server logs.' 
@@ -2998,7 +3054,6 @@ router.post('/renters', authenticate, authorizeManager, async (req: Request, res
     client.release();
   }
 });
-
 // GET /api/manager/renters/:id/payments - Get renter payment history
 router.get('/renters/:id/payments', authenticate, authorizeManager, async (req: Request, res: Response) => {
   try {
@@ -3271,6 +3326,150 @@ router.post('/renters/create-with-account', authenticate, authorizeManager, asyn
       success: false,
       message: 'Failed to create renter'
     });
+  }
+});
+
+// POST /api/manager/renters/:id/renew-lease - Renew renter's lease
+// POST /api/manager/renters/:id/renew-lease - Renew renter's lease (FIXED)
+router.post('/renters/:id/renew-lease', authenticate, authorizeManager, async (req: Request, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const renterId = parseInt(req.params.id);
+    const { 
+      newEndDate, 
+      rentIncreasePercent = 5.0, 
+      increaseReason = 'annual_renewal' 
+    } = req.body;
+
+    console.log(`📝 Renewing lease for renter ${renterId} until ${newEndDate}`);
+
+    // Validate input
+    if (!newEndDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'New end date is required'
+      });
+    }
+
+    await client.query('BEGIN');
+
+    // Call the stored procedure with output parameters
+    await client.query(`
+      CALL renew_lease(
+        $1, $2, $3, $4,
+        NULL, NULL, NULL, NULL, NULL, NULL
+      )
+    `, [renterId, newEndDate, rentIncreasePercent, increaseReason]);
+
+    // Get the updated renter details
+    const updatedRenter = await client.query(`
+      SELECT 
+        r.*,
+        a.apartment_number,
+        a.floor,
+        a.rent_amount,
+        a.lease_start,
+        a.lease_end,
+        b.name as building_name
+      FROM renters r
+      LEFT JOIN apartments a ON r.apartment_id = a.id
+      LEFT JOIN buildings b ON a.building_id = b.id
+      WHERE r.id = $1
+    `, [renterId]);
+
+    // Get the most recent rent history record
+    const rentHistory = await client.query(`
+      SELECT 
+        old_rent,
+        new_rent,
+        change_reason,
+        effective_date,
+        created_at
+      FROM rent_history
+      WHERE renter_id = $1
+      ORDER BY effective_date DESC
+      LIMIT 1
+    `, [renterId]);
+
+    // Get payment count for the new lease period
+    const paymentCount = await client.query(`
+      SELECT COUNT(*) as count
+      FROM payments
+      WHERE renter_id = $1
+        AND month > DATE_TRUNC('month', $2::date)
+    `, [renterId, updatedRenter.rows[0]?.lease_start]);
+
+    await client.query('COMMIT');
+
+    // Calculate renewal details with proper values
+    const oldRent = rentHistory.rows[0]?.old_rent || updatedRenter.rows[0]?.agreed_rent;
+    const newRent = rentHistory.rows[0]?.new_rent || updatedRenter.rows[0]?.agreed_rent;
+    const increaseAmount = newRent - oldRent;
+    const increasePercent = oldRent > 0 ? ((increaseAmount / oldRent) * 100).toFixed(1) : '0.0';
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: 'Lease renewed successfully',
+        renter: updatedRenter.rows[0],
+        rentHistory: rentHistory.rows,
+        renewalDetails: {
+          oldRent,
+          newRent,
+          increaseAmount,
+          increasePercent,
+          newLeaseStart: updatedRenter.rows[0]?.lease_start,
+          newLeaseEnd: updatedRenter.rows[0]?.lease_end,
+          monthsGenerated: parseInt(paymentCount.rows[0]?.count) || 0
+        }
+      }
+    });
+
+  } catch (error: any) {
+    await client.query('ROLLBACK');
+    console.error('❌ Failed to renew lease:', error);
+    
+    // Check for specific error messages from the procedure
+    if (error.message.includes('overdue payment')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot renew lease: Renter has overdue payments'
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Failed to renew lease'
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/manager/renters/:id/lease-history - Get rent history
+router.get('/renters/:id/lease-history', authenticate, authorizeManager, async (req: Request, res: Response) => {
+  try {
+    const renterId = parseInt(req.params.id);
+    
+    const result = await dbQuery(`
+      SELECT 
+        rh.*,
+        u.username as changed_by_username
+      FROM rent_history rh
+      LEFT JOIN users u ON rh.changed_by = u.id
+      WHERE rh.renter_id = $1
+      ORDER BY rh.effective_date DESC
+    `, [renterId]);
+
+    res.json({
+      success: true,
+      data: {
+        history: result.rows
+      }
+    });
+  } catch (error) {
+    console.error('Failed to fetch lease history:', error);
+    res.status(500).json({ success: false, message: 'Failed to fetch lease history' });
   }
 });
 // ==================== EXPORT ROUTER ====================

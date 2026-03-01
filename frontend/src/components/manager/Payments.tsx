@@ -5,23 +5,15 @@ import {
   FaMoneyBillWave,
   FaClock,
   FaCheckCircle,
-  FaTimesCircle,
-  FaSearch,
-  FaFilter,
-  FaCheck,
-  FaTimes,
-  FaEye,
-  FaDownload,
-  FaCalendar,
-  FaUser,
-  FaHome,
-  FaCreditCard,
-  FaBuilding,
-  FaFileInvoice,
   FaExclamationCircle,
   FaSync,
   FaArrowUp,
-  FaArrowDown
+  FaArrowDown,
+  FaEye,
+  FaCalendarAlt,
+  FaUser,
+  FaBuilding,
+  FaFilter
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
@@ -44,6 +36,8 @@ interface Payment {
   building_name: string;
   confirmation_status?: string;
   verified_at?: string;
+  year?: number;
+  month_display?: string;
 }
 
 interface PaymentSummary {
@@ -60,6 +54,12 @@ interface Pagination {
   page: number;
   limit: number;
   totalPages: number;
+}
+
+interface FilterOptions {
+  years: number[];
+  renters: { id: number; name: string; }[];
+  statuses: string[];
 }
 
 const ManagerPayments = () => {
@@ -80,12 +80,17 @@ const ManagerPayments = () => {
   });
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
+    year: 'all',
     month: 'all',
     status: 'all',
     renter_id: 'all'
   });
   const [availableMonths, setAvailableMonths] = useState<{value: string, display_month: string}[]>([]);
-  const [availableRenters, setAvailableRenters] = useState<{id: number, name: string}[]>([]);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
+    years: [],
+    renters: [],
+    statuses: ['all', 'paid', 'pending', 'overdue']
+  });
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
   const [verificationNote, setVerificationNote] = useState('');
@@ -95,80 +100,117 @@ const ManagerPayments = () => {
 
   useEffect(() => {
     fetchPayments();
-    fetchFilters();
   }, [filters, pagination.page, sortField, sortDirection]);
 
-  const fetchPayments = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
+  useEffect(() => {
+    fetchFilters();
+  }, []);
+const fetchPayments = async () => {
+  try {
+    setLoading(true);
+    const token = localStorage.getItem('token');
+    
+    // Build params - KEEP year filter, but DON'T send month to backend
+    const params = new URLSearchParams({
+      page: pagination.page.toString(),
+      limit: pagination.limit.toString(),
+      ...(filters.year !== 'all' && { year: filters.year }), // ✅ KEEP THIS
+      // ...(filters.month !== 'all' && { month: filters.month }), // ❌ REMOVE THIS
+      ...(filters.status !== 'all' && { status: filters.status }),
+      ...(filters.renter_id !== 'all' && { renter_id: filters.renter_id })
+    });
+    
+    console.log('Sending params:', params.toString()); // Debug
+    
+    const response = await axios.get(`${API_URL}/manager/payments?${params}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (response.data.success) {
+      let filteredPayments = response.data.data.payments || [];
       
-      const params = new URLSearchParams({
-        page: pagination.page.toString(),
-        limit: pagination.limit.toString(),
-        ...(filters.month !== 'all' && { month: filters.month }),
-        ...(filters.status !== 'all' && { status: filters.status }),
-        ...(filters.renter_id !== 'all' && { renter_id: filters.renter_id })
-      });
-      
-      const response = await axios.get(`${API_URL}/manager/payments?${params}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (response.data.success) {
-        setPayments(response.data.data.payments || []);
-        setSummary(response.data.data.summary || {
-          total_pending: 0,
-          total_overdue: 0,
-          total_paid: 0,
-          amount_pending: 0,
-          amount_overdue: 0,
-          amount_paid: 0
+      // MANUALLY filter by month in the frontend
+      if (filters.month !== 'all') {
+        const selectedDate = new Date(filters.month + 'T12:00:00');
+        const selectedMonth = selectedDate.getMonth(); // 0-11
+        const selectedYear = selectedDate.getFullYear();
+        
+        filteredPayments = filteredPayments.filter((p: Payment) => {
+          const paymentDate = new Date(p.month);
+          return paymentDate.getMonth() === selectedMonth && 
+                 paymentDate.getFullYear() === selectedYear;
         });
-        setPagination(response.data.data.pagination || {
-          total: 0,
-          page: 1,
-          limit: 20,
-          totalPages: 0
-        });
       }
-    } catch (error) {
-      console.error('Error fetching payments:', error);
-      toast.error('Failed to load payments');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchFilters = async () => {
-    try {
-      const token = localStorage.getItem('token');
       
-      const monthsResponse = await axios.get(`${API_URL}/manager/payments/months`, {
-        headers: { Authorization: `Bearer ${token}` }
+      setPayments(filteredPayments);
+      setSummary(response.data.data.summary || {
+        total_pending: 0,
+        total_overdue: 0,
+        total_paid: 0,
+        amount_pending: 0,
+        amount_overdue: 0,
+        amount_paid: 0
       });
-      
-      if (monthsResponse.data.success) {
-        setAvailableMonths(monthsResponse.data.months || []);
-      }
-      
-      const rentersResponse = await axios.get(`${API_URL}/manager/renters?status=active`, {
-        headers: { Authorization: `Bearer ${token}` }
+      setPagination(response.data.data.pagination || {
+        total: 0,
+        page: 1,
+        limit: 20,
+        totalPages: 0
       });
-      
-      if (rentersResponse.data.success) {
-        setAvailableRenters(
-          rentersResponse.data.data.renters?.map((r: any) => ({
-            id: r.id,
-            name: r.name
-          })) || []
-        );
-      }
-    } catch (error) {
-      console.error('Error fetching filters:', error);
     }
-  };
-
+  } catch (error) {
+    console.error('Error fetching payments:', error);
+    toast.error('Failed to load payments');
+  } finally {
+    setLoading(false);
+  }
+};
+const fetchFilters = async () => {
+  try {
+    const token = localStorage.getItem('token');
+    
+    // Fetch available months
+    const monthsResponse = await axios.get(`${API_URL}/manager/payments/months`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (monthsResponse.data.success) {
+      // Process months to show only month name
+      const months = (monthsResponse.data.months || []).map((month: any) => {
+        const date = new Date(month.value + 'T12:00:00');
+        return {
+          value: month.value,
+          display_month: date.toLocaleDateString('en-US', { month: 'long' })
+        };
+      });
+      setAvailableMonths(months);
+    }
+    
+    // Fetch renters for filter
+    const rentersResponse = await axios.get(`${API_URL}/manager/renters?status=active`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (rentersResponse.data.success) {
+      setFilterOptions(prev => ({
+        ...prev,
+        // 👇 HARDCODE THE YEARS HERE
+        years: [2027, 2026, 2025],
+        renters: rentersResponse.data.data.renters?.map((r: any) => ({
+          id: r.id,
+          name: r.name
+        })) || []
+      }));
+    }
+  } catch (error) {
+    console.error('Error fetching filters:', error);
+    // Fallback years
+    setFilterOptions(prev => ({
+      ...prev,
+      years: [2027, 2026, 2025]
+    }));
+  }
+};
   const handleVerifyPayment = async (paymentId: number, status: 'verified' | 'rejected') => {
     try {
       setVerifyingId(paymentId);
@@ -231,14 +273,12 @@ const ManagerPayments = () => {
           </span>
         );
       }
-      if (payment.confirmation_status === 'pending_review') {
-        return (
-          <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-100 text-amber-700 rounded-full text-sm font-medium">
-            <FaClock />
-            Pending Verification
-          </span>
-        );
-      }
+      return (
+        <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium">
+          <FaCheckCircle />
+          Paid
+        </span>
+      );
     }
     return null;
   };
@@ -247,7 +287,13 @@ const ManagerPayments = () => {
     return `৳${amount.toLocaleString('en-BD')}`;
   };
 
-  if (loading) {
+  const formatMonthDisplay = (monthValue: string) => {
+    if (!monthValue || monthValue === 'all') return 'All Months';
+    const date = new Date(monthValue + 'T12:00:00');
+    return date.toLocaleDateString('en-US', { month: 'long' });
+  };
+
+  if (loading && payments.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-violet-600"></div>
@@ -322,13 +368,35 @@ const ManagerPayments = () => {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border p-4 shadow-sm">
+        <div className="flex items-center gap-2 mb-3">
+          <FaFilter className="text-slate-400" />
+          <span className="text-sm font-medium text-slate-700">Filter Payments</span>
+        </div>
         <div className="flex flex-wrap gap-4">
-          <div className="flex-1 min-w-[200px]">
+          {/* Year Filter */}
+          <div className="flex-1 min-w-[150px]">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Year</label>
+            <select
+              value={filters.year}
+              onChange={(e) => setFilters({ ...filters, year: e.target.value, page: 1 })}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+            >
+              <option value="all">All Years</option>
+              {filterOptions.years.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Month Filter - Now shows only month names */}
+          <div className="flex-1 min-w-[150px]">
             <label className="block text-sm font-medium text-slate-700 mb-1">Month</label>
             <select
               value={filters.month}
               onChange={(e) => setFilters({ ...filters, month: e.target.value, page: 1 })}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
             >
               <option value="all">All Months</option>
               {availableMonths.map((month) => (
@@ -339,33 +407,52 @@ const ManagerPayments = () => {
             </select>
           </div>
 
-          <div className="flex-1 min-w-[200px]">
+          {/* Status Filter */}
+          <div className="flex-1 min-w-[150px]">
             <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
             <select
               value={filters.status}
               onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
             >
               <option value="all">All Status</option>
-              <option value="pending">Pending (Current Month)</option>
+              <option value="pending">Pending</option>
               <option value="overdue">Overdue</option>
               <option value="paid">Paid</option>
             </select>
           </div>
 
+          {/* Renter Filter */}
           <div className="flex-1 min-w-[200px]">
             <label className="block text-sm font-medium text-slate-700 mb-1">Renter</label>
             <select
               value={filters.renter_id}
               onChange={(e) => setFilters({ ...filters, renter_id: e.target.value, page: 1 })}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
             >
               <option value="all">All Renters</option>
-              {availableRenters.map(renter => (
+              {filterOptions.renters.map(renter => (
                 <option key={renter.id} value={renter.id}>{renter.name}</option>
               ))}
             </select>
           </div>
+        </div>
+        
+        {/* Active filters display */}
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <span className="text-slate-500">Active filters:</span>
+          <span className="px-2 py-1 bg-slate-100 rounded">
+            Year: {filters.year === 'all' ? 'All' : filters.year}
+          </span>
+          <span className="px-2 py-1 bg-slate-100 rounded">
+            Month: {filters.month === 'all' ? 'All' : formatMonthDisplay(filters.month)}
+          </span>
+          <span className="px-2 py-1 bg-slate-100 rounded">
+            Status: {filters.status === 'all' ? 'All' : filters.status}
+          </span>
+          <span className="px-2 py-1 bg-slate-100 rounded">
+            Renter: {filters.renter_id === 'all' ? 'All' : filterOptions.renters.find(r => r.id.toString() === filters.renter_id)?.name || 'Selected'}
+          </span>
         </div>
       </div>
 
@@ -437,19 +524,36 @@ const ManagerPayments = () => {
                       <p className="text-sm text-slate-500">{payment.building_name}</p>
                     </td>
                     <td className="p-4">
-                      {new Date(payment.month).toLocaleDateString('en-US', { 
-                        month: 'long', 
-                        year: 'numeric' 
-                      })}
+                      <div className="flex items-center gap-2">
+                        <FaCalendarAlt className="text-slate-400 text-sm" />
+                        <div>
+                          <p className="font-medium">
+                            {new Date(payment.month).toLocaleDateString('en-US', { 
+                              month: 'long', 
+                              year: 'numeric' 
+                            })}
+                          </p>
+                          {payment.year && (
+                            <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">
+                              Year: {payment.year}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td className="p-4 font-bold">{formatCurrency(payment.amount)}</td>
                     <td className="p-4">
-                      {new Date(payment.due_date).toLocaleDateString()}
-                      {payment.paid_at && (
-                        <p className="text-xs text-emerald-600">
-                          Paid: {new Date(payment.paid_at).toLocaleDateString()}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-2">
+                        <FaCalendarAlt className="text-slate-400 text-sm" />
+                        <div>
+                          <p className="text-sm">{new Date(payment.due_date).toLocaleDateString()}</p>
+                          {payment.paid_at && (
+                            <p className="text-xs text-emerald-600">
+                              Paid: {new Date(payment.paid_at).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td className="p-4">
                       {getStatusBadge(payment)}
@@ -468,7 +572,7 @@ const ManagerPayments = () => {
                           </button>
                         )}
                         <button
-                          className="p-2 hover:bg-slate-100 rounded-lg"
+                          className="p-2 hover:bg-slate-100 rounded-lg text-blue-600"
                           title="View Details"
                           onClick={() => {
                             setSelectedPayment(payment);
@@ -498,14 +602,17 @@ const ManagerPayments = () => {
               <button
                 onClick={() => setPagination({ ...pagination, page: pagination.page - 1 })}
                 disabled={pagination.page === 1}
-                className="px-3 py-1 border rounded-lg disabled:opacity-50"
+                className="px-3 py-1 border rounded-lg disabled:opacity-50 hover:bg-slate-50"
               >
                 Previous
               </button>
+              <span className="px-3 py-1">
+                Page {pagination.page} of {pagination.totalPages}
+              </span>
               <button
                 onClick={() => setPagination({ ...pagination, page: pagination.page + 1 })}
                 disabled={pagination.page === pagination.totalPages}
-                className="px-3 py-1 border rounded-lg disabled:opacity-50"
+                className="px-3 py-1 border rounded-lg disabled:opacity-50 hover:bg-slate-50"
               >
                 Next
               </button>

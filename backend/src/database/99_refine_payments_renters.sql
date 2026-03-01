@@ -94,6 +94,8 @@ WHERE status = 'pending' AND month < '2025-01-01';
 -- STEP 6: FUNCTION TO GENERATE PAYMENTS FOR A RENTER (FIXED)
 -- ============================================
 
+-- Drop and recreate with proper logic
+
 CREATE OR REPLACE FUNCTION generate_renter_payments(p_renter_id INTEGER)
 RETURNS VOID AS $$
 DECLARE
@@ -104,7 +106,8 @@ DECLARE
     v_current_month DATE;
     v_due_date DATE;
     v_today DATE := CURRENT_DATE;
-    v_status payment_status;  -- Declare as enum type
+    v_status payment_status;
+    v_paid_at TIMESTAMP;
 BEGIN
     -- Get renter details
     SELECT apartment_id, lease_start, lease_end, agreed_rent 
@@ -116,7 +119,7 @@ BEGIN
         RETURN;
     END IF;
     
-    -- Start from lease start month
+    -- Start from lease start month (first day of month)
     v_current_month := DATE_TRUNC('month', v_lease_start)::DATE;
     
     -- Generate payments for each month of lease
@@ -126,11 +129,18 @@ BEGIN
         
         -- Determine status based on current date
         IF v_current_month < DATE_TRUNC('month', v_today) THEN
+            -- Past months: mark as PAID (historical)
             v_status := 'paid'::payment_status;
+            -- Set paid_at to a reasonable date (3rd of that month)
+            v_paid_at := v_current_month + INTERVAL '3 days';
         ELSIF v_current_month = DATE_TRUNC('month', v_today) THEN
+            -- Current month: pending (due now)
             v_status := 'pending'::payment_status;
+            v_paid_at := NULL;
         ELSE
+            -- Future months: pending (upcoming)
             v_status := 'pending'::payment_status;
+            v_paid_at := NULL;
         END IF;
         
         -- Insert payment
@@ -141,6 +151,7 @@ BEGIN
             month, 
             due_date, 
             status,
+            paid_at,
             created_at,
             updated_at
         ) VALUES (
@@ -150,6 +161,7 @@ BEGIN
             v_current_month, 
             v_due_date,
             v_status,
+            v_paid_at,
             CURRENT_TIMESTAMP,
             CURRENT_TIMESTAMP
         )
@@ -158,17 +170,17 @@ BEGIN
             apartment_id = EXCLUDED.apartment_id,
             due_date = EXCLUDED.due_date,
             status = EXCLUDED.status,
+            paid_at = EXCLUDED.paid_at,
             updated_at = CURRENT_TIMESTAMP;
         
         -- Move to next month
         v_current_month := (v_current_month + INTERVAL '1 month')::DATE;
     END LOOP;
     
-    RAISE NOTICE 'Generated payments for renter % from % to %', 
+    RAISE NOTICE 'Generated payments for renter % from % to % (% past months paid)', 
         p_renter_id, v_lease_start, v_lease_end;
 END;
 $$ LANGUAGE plpgsql;
-
 -- ============================================
 -- STEP 7: TRIGGER TO AUTO-CREATE PAYMENTS ON NEW RENTER
 -- ============================================
