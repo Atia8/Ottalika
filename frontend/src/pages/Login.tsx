@@ -15,7 +15,7 @@ const Login = () => {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
-  const [role, setRole] = useState<'manager' | 'owner' | 'renter'>('renter');
+  const [role, setRole] = useState<'owner'>('owner'); // Only owner role
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,32 +42,20 @@ const Login = () => {
             navigate('/');
         }
       } else {
-        // Register
+        // Register - only owner role is allowed
         const user = await register({
           email,
           password,
           firstName,
           lastName,
           phone,
-          role,
+          role: 'owner', // Force owner role
         });
         
         console.log('Registration successful, user:', user);
         
-        // Navigate based on user role
-        switch (user.role) {
-          case 'owner':
-            navigate('/owner');
-            break;
-          case 'manager':
-            navigate('/manager/dashboard');
-            break;
-          case 'renter':
-            navigate('/renter/dashboard');
-            break;
-          default:
-            navigate('/');
-        }
+        // Navigate to owner dashboard
+        navigate('/owner');
       }
     } catch (error: any) {
       console.error('Authentication failed:', error.message);
@@ -130,7 +118,7 @@ const Login = () => {
         {/* Form Card */}
         <div className="bg-white rounded-2xl p-8 shadow-xl">
           <h2 className="text-2xl font-bold text-slate-900 mb-6">
-            {isLogin ? 'Welcome Back' : 'Create Account'}
+            {isLogin ? 'Welcome Back' : 'Create Owner Account'}
           </h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -181,20 +169,15 @@ const Login = () => {
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
-                    Role *
-                  </label>
-                  <select
-                    value={role}
-                    onChange={(e) => setRole(e.target.value as any)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
-                    required={!isLogin}
-                  >
-                    <option value="renter">Renter</option>
-                    <option value="manager">Manager</option>
-                    <option value="owner">Owner</option>
-                  </select>
+                {/* Hidden role field - always owner */}
+                <input type="hidden" value="owner" />
+                
+                {/* Optional: Show a badge indicating owner account creation */}
+                <div className="bg-violet-50 border border-violet-200 rounded-lg p-3">
+                  <p className="text-sm text-violet-700 flex items-center">
+                    <FaBuilding className="mr-2" />
+                    You are creating an <strong className="mx-1">Owner</strong> account
+                  </p>
                 </div>
               </>
             )}
@@ -244,8 +227,8 @@ const Login = () => {
               }`}
             >
               {isLoading
-                ? (isLogin ? 'Signing in...' : 'Creating account...')
-                : (isLogin ? 'Sign In' : 'Create Account')
+                ? (isLogin ? 'Signing in...' : 'Creating owner account...')
+                : (isLogin ? 'Sign In' : 'Create Owner Account')
               }
             </button>
           </form>
