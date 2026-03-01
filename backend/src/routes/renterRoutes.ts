@@ -14,7 +14,7 @@ const dbQuery = async (text: string, params?: any[]) => {
   }
 };
 
-// Mock authentication middleware
+// Fix: Use real JWT token verification
 const authenticateRenter = async (req: Request, res: Response, next: Function) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -25,11 +25,54 @@ const authenticateRenter = async (req: Request, res: Response, next: Function) =
         message: 'Authentication required'
       });
     }
+
+    // Verify JWT token
+    const jwt = require('jsonwebtoken');
+    const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_key_here_change_in_production';
     
-    // For demo, use renter ID from your database (Demo Renter)
-    (req as any).renterId = 6; // Demo Renter ID from your seed data
+    const decoded = jwt.verify(token, JWT_SECRET) as {
+      userId: number;
+      email: string;
+      role: string;
+    };
+
+    // Get the renter ID from the database using the user_id
+    const result = await dbQuery(
+      'SELECT id FROM renters WHERE user_id = $1',
+      [decoded.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Renter profile not found'
+      });
+    }
+
+    // Set the CORRECT renter ID from database
+    (req as any).renterId = result.rows[0].id;
+    (req as any).userId = decoded.userId;
+    
+    console.log(`✅ Authenticated renter ID: ${result.rows[0].id} from user ID: ${decoded.userId}`);
     next();
-  } catch (error) {
+    
+  } catch (error: any) {
+    console.error('Authentication error:', error.message);
+    
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token'
+      });
+    }
+    
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        success: false,
+        message: 'Token expired'
+      });
+    }
+
     res.status(401).json({
       success: false,
       message: 'Authentication failed'

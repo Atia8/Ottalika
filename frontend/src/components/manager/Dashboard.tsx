@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
   FaUsers, 
-  FaUserCheck, 
   FaExclamationTriangle, 
   FaArrowRight, 
   FaCheck, 
@@ -62,7 +61,6 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 interface DashboardStats {
   totalRenters: number;
-  pendingApprovals: number;
   pendingComplaints: number;
   pendingVerifications: number;
   pendingBills: number;
@@ -72,21 +70,9 @@ interface DashboardStats {
   occupancyRate: number;
 }
 
-interface PendingRenter {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-  apartment: string;
-  building?: string;
-  rentAmount: number;
-  submittedAt: string;
-  status: string;
-}
-
 interface RecentActivity {
   id: number;
-  type: 'payment' | 'maintenance' | 'renter_approval' | 'complaint' | 'bill';
+  type: 'payment' | 'maintenance' | 'complaint' | 'bill';
   title: string;
   time: string;
   status: string;
@@ -165,7 +151,6 @@ const ManagerDashboard = () => {
   const [activeAnalyticsTab, setActiveAnalyticsTab] = useState('payment-trends');
   const [stats, setStats] = useState<DashboardStats>({
     totalRenters: 0,
-    pendingApprovals: 0,
     pendingComplaints: 0,
     pendingVerifications: 0,
     pendingBills: 0,
@@ -174,7 +159,6 @@ const ManagerDashboard = () => {
     monthlyRevenue: 0,
     occupancyRate: 0
   });
-  const [pendingRenters, setPendingRenters] = useState<PendingRenter[]>([]);
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData>({});
   const [dateRange, setDateRange] = useState('6');
@@ -205,29 +189,6 @@ const ManagerDashboard = () => {
         }
       }
 
-      // Fetch pending renters
-      const rentersResponse = await axios.get(`${API_URL}/manager/renters`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      if (rentersResponse.data.success) {
-        const pending = rentersResponse.data.data.renters
-          .filter((r: any) => r.status === 'pending')
-          .slice(0, 3)
-          .map((r: any) => ({
-            id: r.id,
-            name: r.name,
-            email: r.email,
-            phone: r.phone || 'N/A',
-            apartment: r.apartment || 'Not assigned',
-            building: r.building || 'Main Building',
-            rentAmount: r.rentAmount || 5000,
-            submittedAt: '2 days ago',
-            status: r.status
-          }));
-        setPendingRenters(pending);
-      }
-
     } catch (error) {
       console.error('Failed to fetch dashboard data:', error);
       toast.error('Error loading dashboard data');
@@ -235,7 +196,6 @@ const ManagerDashboard = () => {
       // Fallback data
       setStats({
         totalRenters: 7,
-        pendingApprovals: 3,
         pendingComplaints: 5,
         pendingVerifications: 4,
         pendingBills: 2,
@@ -257,8 +217,8 @@ const ManagerDashboard = () => {
         },
         {
           id: 2,
-          type: 'renter_approval',
-          title: 'New renter application for Apartment 103',
+          type: 'maintenance',
+          title: 'New maintenance request for Apartment 103',
           time: '4 hours ago',
           status: 'pending',
           priority: 'medium'
@@ -406,45 +366,6 @@ const ManagerDashboard = () => {
     setDateRange(range);
     if (activeAnalyticsTab === 'payment-trends' || activeAnalyticsTab === 'occupancy-trends') {
       fetchAnalyticsData(activeAnalyticsTab);
-    }
-  };
-
-  const handleApproveRenter = async (renterId: number) => {
-    try {
-      const token = localStorage.getItem('token');
-      const renter = pendingRenters.find(r => r.id === renterId);
-      
-      await axios.post(`${API_URL}/manager/renters/${renterId}/approve`, {
-        apartment: renter?.apartment,
-        rentAmount: renter?.rentAmount || 5000,
-        leaseStart: new Date().toISOString().split('T')[0],
-        leaseEnd: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      toast.success(`${renter?.name} approved successfully!`);
-      fetchDashboardData();
-    } catch (error) {
-      console.error('Failed to approve renter:', error);
-      toast.error('Failed to approve renter');
-    }
-  };
-
-  const handleRejectRenter = async (renterId: number) => {
-    try {
-      const token = localStorage.getItem('token');
-      const renter = pendingRenters.find(r => r.id === renterId);
-      
-      await axios.delete(`${API_URL}/manager/renters/${renterId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      toast.success(`${renter?.name} rejected`);
-      fetchDashboardData();
-    } catch (error) {
-      console.error('Failed to reject renter:', error);
-      toast.error('Failed to reject renter');
     }
   };
 
@@ -890,8 +811,9 @@ const ManagerDashboard = () => {
         </div>
       </div>
 
-      {/* Stats Grid */}
+      {/* Stats Grid - 4 cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Renters */}
         <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-2xl p-6 shadow-sm border border-slate-200">
           <div className="flex items-center justify-between">
             <div>
@@ -905,19 +827,7 @@ const ManagerDashboard = () => {
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-2xl p-6 shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-slate-600">Pending Approvals</p>
-              <p className="text-3xl font-bold mt-2 text-slate-900">{stats.pendingApprovals}</p>
-              <p className="text-xs text-slate-500 mt-1">Awaiting review</p>
-            </div>
-            <div className="p-3 rounded-xl bg-white/50 text-amber-600">
-              <FaUserCheck className="text-3xl" />
-            </div>
-          </div>
-        </div>
-
+        {/* Pending Complaints */}
         <div className="bg-gradient-to-br from-rose-50 to-rose-100 rounded-2xl p-6 shadow-sm border border-slate-200">
           <div className="flex items-center justify-between">
             <div>
@@ -931,6 +841,7 @@ const ManagerDashboard = () => {
           </div>
         </div>
 
+        {/* Pending Verifications */}
         <div className="bg-gradient-to-br from-violet-50 to-violet-100 rounded-2xl p-6 shadow-sm border border-slate-200">
           <div className="flex items-center justify-between">
             <div>
@@ -943,18 +854,24 @@ const ManagerDashboard = () => {
             </div>
           </div>
         </div>
+
+        {/* Monthly Revenue */}
+        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl p-6 shadow-sm border border-slate-200">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-600">Monthly Revenue</p>
+              <p className="text-3xl font-bold mt-2 text-slate-900">{formatCurrency(stats.monthlyRevenue)}</p>
+              <p className="text-xs text-slate-500 mt-1">This month</p>
+            </div>
+            <div className="p-3 rounded-xl bg-white/50 text-emerald-600">
+              <FaMoneyBillWave className="text-3xl" />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Second Row Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 border border-slate-200 flex items-center justify-between">
-          <div>
-            <p className="text-sm text-slate-600">Monthly Revenue</p>
-            <p className="text-xl font-bold text-slate-900">{formatCurrency(stats.monthlyRevenue)}</p>
-          </div>
-          <FaMoneyBillWave className="text-2xl text-emerald-500" />
-        </div>
-        
         <div className="bg-white rounded-xl p-4 border border-slate-200 flex items-center justify-between">
           <div>
             <p className="text-sm text-slate-600">Occupancy Rate</p>
@@ -977,6 +894,14 @@ const ManagerDashboard = () => {
             <p className="text-xl font-bold text-slate-900">{stats.completedTasks}</p>
           </div>
           <FaCheck className="text-2xl text-green-500" />
+        </div>
+        
+        <div className="bg-white rounded-xl p-4 border border-slate-200 flex items-center justify-between">
+          <div>
+            <p className="text-sm text-slate-600">Pending Bills</p>
+            <p className="text-xl font-bold text-slate-900">{stats.pendingBills}</p>
+          </div>
+          <FaFileInvoice className="text-2xl text-orange-500" />
         </div>
       </div>
 
@@ -1019,86 +944,9 @@ const ManagerDashboard = () => {
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Pending Renters */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900">Pending Renter Requests</h2>
-              <p className="text-sm text-slate-500">Awaiting your approval</p>
-            </div>
-            <button 
-              className="text-violet-600 hover:text-violet-700 text-sm font-medium flex items-center"
-              onClick={() => navigateTo('/manager/renters')}
-            >
-              View All
-              <FaArrowRight className="ml-2" />
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {pendingRenters.length === 0 ? (
-              <div className="text-center py-8">
-                <FaUsers className="text-4xl text-slate-300 mx-auto mb-4" />
-                <p className="text-slate-500">No pending renter requests</p>
-              </div>
-            ) : (
-              pendingRenters.map((renter) => (
-                <div key={renter.id} className="p-4 rounded-xl border border-slate-200 hover:shadow-md transition-shadow">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 bg-gradient-to-br from-violet-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-white font-bold text-sm">
-                          {renter.name.split(' ').map(n => n[0]).join('')}
-                        </span>
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-slate-900">{renter.name}</h3>
-                        <div className="flex items-center gap-3 mt-1">
-                          <div className="flex items-center gap-1">
-                            <FaHome className="text-slate-400 text-xs" />
-                            <p className="text-sm text-slate-500">{renter.apartment}</p>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <FaMoneyBillWave className="text-slate-400 text-xs" />
-                            <p className="text-sm text-slate-500">{formatCurrency(renter.rentAmount)}</p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 mt-2">
-                          <FaEnvelope className="text-slate-400 text-xs" />
-                          <p className="text-xs text-slate-500">{renter.email}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <button 
-                        className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm flex items-center gap-1"
-                        onClick={() => handleApproveRenter(renter.id)}
-                      >
-                        <FaCheck size={12} />
-                        Approve
-                      </button>
-                      <button 
-                        className="px-3 py-1.5 bg-rose-600 text-white rounded-lg hover:bg-rose-700 text-sm flex items-center gap-1"
-                        onClick={() => handleRejectRenter(renter.id)}
-                      >
-                        <FaTimes size={12} />
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-3 flex items-center gap-1">
-                    <FaClock className="text-xs" />
-                    Submitted {renter.submittedAt}
-                  </p>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Recent Activity */}
+      {/* Main Content Area - Now with just Recent Activity */}
+      <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
+        {/* Recent Activity - Full width */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-slate-900">Recent Activity</h2>
@@ -1116,7 +964,7 @@ const ManagerDashboard = () => {
                   <div className={`w-2 h-2 rounded-full mt-2 ${
                     activity.type === 'payment' ? 'bg-emerald-500' :
                     activity.type === 'maintenance' ? 'bg-amber-500' :
-                    activity.type === 'renter_approval' ? 'bg-blue-500' : 'bg-violet-500'
+                    activity.type === 'complaint' ? 'bg-rose-500' : 'bg-violet-500'
                   }`}></div>
                   <div className="flex-1">
                     <p className="text-sm text-slate-900">{activity.title}</p>

@@ -17,7 +17,9 @@ import {
   FaUniversity,
   FaSearch,
   FaFilter,
-  FaSync
+  FaSync,
+  FaCopy,
+  FaCheck
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
@@ -60,6 +62,8 @@ const RenterPayments = () => {
   const [transactionId, setTransactionId] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   useEffect(() => {
     fetchPayments();
@@ -159,13 +163,42 @@ const RenterPayments = () => {
     }
   };
 
+  const handleQuickPayment = (method: string, number: string) => {
+    setPaymentMethod(method);
+    toast.success(
+      <div>
+        <p className="font-medium">Selected: {method.replace('_', ' ')}</p>
+        <p className="text-sm">Send payment to: {number}</p>
+        <p className="text-xs mt-1">Enter transaction ID below</p>
+      </div>,
+      { duration: 5000 }
+    );
+    setShowPaymentModal(true);
+  };
+
   const handleMakePayment = async () => {
-    if (!selectedMonth || !paymentAmount || !paymentMethod) {
-      toast.error('Please fill in all required fields');
+    if (!selectedMonth) {
+      toast.error('Please select a month');
+      return;
+    }
+    
+    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+
+    if (!paymentMethod) {
+      toast.error('Please select a payment method');
+      return;
+    }
+
+    if (!transactionId.trim()) {
+      toast.error('Please enter transaction ID');
       return;
     }
 
     try {
+      setSubmitting(true);
       const token = localStorage.getItem('token');
       
       const response = await axios.post(`${API_URL}/renter/payments/make`, {
@@ -178,14 +211,16 @@ const RenterPayments = () => {
       });
       
       if (response.data.success) {
-        toast.success('Payment submitted successfully!');
+        toast.success('Payment submitted successfully! Waiting for verification.');
         setShowPaymentModal(false);
         resetPaymentForm();
         fetchPayments();
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to submit payment:', error);
-      toast.error('Failed to submit payment');
+      toast.error(error.response?.data?.message || 'Failed to submit payment');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -194,6 +229,13 @@ const RenterPayments = () => {
     setPaymentAmount('');
     setPaymentMethod('bkash');
     setTransactionId('');
+  };
+
+  const handleCopyTransactionId = (transactionId: string) => {
+    navigator.clipboard.writeText(transactionId);
+    setCopiedId(Date.now());
+    toast.success('Transaction ID copied to clipboard');
+    setTimeout(() => setCopiedId(null), 2000);
   };
 
   const handleDownloadReceipt = (paymentId: number) => {
@@ -248,6 +290,8 @@ const RenterPayments = () => {
     { value: '2025-02-01', label: 'February 2025' },
     { value: '2025-03-01', label: 'March 2025' },
     { value: '2025-04-01', label: 'April 2025' },
+    { value: '2025-05-01', label: 'May 2025' },
+    { value: '2025-06-01', label: 'June 2025' }
   ];
 
   if (loading) {
@@ -268,7 +312,7 @@ const RenterPayments = () => {
         </div>
         <button
           onClick={() => setShowPaymentModal(true)}
-          className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 flex items-center gap-2"
+          className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 flex items-center gap-2 transition-colors"
         >
           <FaMoneyBillWave />
           Make Payment
@@ -341,7 +385,7 @@ const RenterPayments = () => {
                 placeholder="Search by month..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
               />
             </div>
           </div>
@@ -349,7 +393,7 @@ const RenterPayments = () => {
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+              className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
             >
               <option value="all">All Status</option>
               <option value="pending">Pending</option>
@@ -367,34 +411,49 @@ const RenterPayments = () => {
         </div>
       </div>
 
-      {/* Payment Methods Quick Select */}
+      {/* Payment Methods Quick Select - FIXED with onClick handlers */}
       <div className="bg-white rounded-xl border p-6 shadow-sm">
         <h3 className="font-bold text-slate-900 mb-4">Quick Payment Methods</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <button className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors">
+          <button 
+            onClick={() => handleQuickPayment('bkash', '016XXXXXXXX')}
+            className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors group"
+          >
             <div className="flex flex-col items-center gap-2">
-              <FaMobileAlt className="text-xl text-green-600" />
+              <FaMobileAlt className="text-xl text-green-600 group-hover:scale-110 transition-transform" />
               <span className="font-medium">bKash</span>
               <span className="text-sm text-slate-500">016XXXXXXXX</span>
             </div>
           </button>
-          <button className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors">
+          
+          <button 
+            onClick={() => handleQuickPayment('nagad', '017XXXXXXXX')}
+            className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors group"
+          >
             <div className="flex flex-col items-center gap-2">
-              <FaMobileAlt className="text-xl text-red-600" />
+              <FaMobileAlt className="text-xl text-red-600 group-hover:scale-110 transition-transform" />
               <span className="font-medium">Nagad</span>
               <span className="text-sm text-slate-500">017XXXXXXXX</span>
             </div>
           </button>
-          <button className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors">
+          
+          <button 
+            onClick={() => handleQuickPayment('bank_transfer', 'DBBL Savings A/C: 123-456-789')}
+            className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors group"
+          >
             <div className="flex flex-col items-center gap-2">
-              <FaUniversity className="text-xl text-blue-600" />
+              <FaUniversity className="text-xl text-blue-600 group-hover:scale-110 transition-transform" />
               <span className="font-medium">Bank Transfer</span>
-              <span className="text-sm text-slate-500">DBBL XXXXXXX</span>
+              <span className="text-sm text-slate-500">DBBL 123-456-789</span>
             </div>
           </button>
-          <button className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors">
+          
+          <button 
+            onClick={() => handleQuickPayment('card', 'Visa/Mastercard')}
+            className="p-4 border rounded-xl hover:border-violet-400 hover:bg-violet-50 transition-colors group"
+          >
             <div className="flex flex-col items-center gap-2">
-              <FaCreditCard className="text-xl text-purple-600" />
+              <FaCreditCard className="text-xl text-purple-600 group-hover:scale-110 transition-transform" />
               <span className="font-medium">Card Payment</span>
               <span className="text-sm text-slate-500">Visa/Mastercard</span>
             </div>
@@ -503,6 +562,15 @@ const RenterPayments = () => {
                             >
                               <FaShare />
                             </button>
+                            {payment.transaction_id && (
+                              <button
+                                onClick={() => handleCopyTransactionId(payment.transaction_id!)}
+                                className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                                title="Copy Transaction ID"
+                              >
+                                {copiedId === payment.id ? <FaCheck className="text-emerald-600" /> : <FaCopy />}
+                              </button>
+                            )}
                           </>
                         )}
                         {payment.status === 'pending' && (
@@ -512,7 +580,7 @@ const RenterPayments = () => {
                               setPaymentAmount(payment.amount.toString());
                               setShowPaymentModal(true);
                             }}
-                            className="px-3 py-1.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 text-sm"
+                            className="px-3 py-1.5 bg-violet-600 text-white rounded-lg hover:bg-violet-700 text-sm transition-colors"
                           >
                             Pay Now
                           </button>
@@ -563,29 +631,29 @@ const RenterPayments = () => {
         </div>
 
         <div className="bg-white p-6 rounded-xl border shadow-sm">
-          <h3 className="font-bold text-slate-900 mb-4">Quick Tips</h3>
+          <h3 className="font-bold text-slate-900 mb-4">Payment Tips</h3>
           <ul className="space-y-3">
             <li className="flex items-start gap-2">
-              <FaCheckCircle className="text-emerald-600 mt-1" />
+              <FaCheckCircle className="text-emerald-600 mt-1 flex-shrink-0" />
               <span className="text-slate-700">Pay before due date to avoid late fees</span>
             </li>
             <li className="flex items-start gap-2">
-              <FaCheckCircle className="text-emerald-600 mt-1" />
+              <FaCheckCircle className="text-emerald-600 mt-1 flex-shrink-0" />
               <span className="text-slate-700">Keep transaction IDs for future reference</span>
             </li>
             <li className="flex items-start gap-2">
-              <FaCheckCircle className="text-emerald-600 mt-1" />
-              <span className="text-slate-700">Download receipts for tax purposes</span>
+              <FaCheckCircle className="text-emerald-600 mt-1 flex-shrink-0" />
+              <span className="text-slate-700">Payments are verified within 24 hours</span>
             </li>
             <li className="flex items-start gap-2">
-              <FaCheckCircle className="text-emerald-600 mt-1" />
-              <span className="text-slate-700">Contact manager for payment issues</span>
+              <FaCheckCircle className="text-emerald-600 mt-1 flex-shrink-0" />
+              <span className="text-slate-700">Contact manager if payment not verified after 48 hours</span>
             </li>
           </ul>
         </div>
       </div>
 
-      {/* Payment Modal */}
+      {/* Payment Modal - FIXED with better UX */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-md w-full">
@@ -597,7 +665,7 @@ const RenterPayments = () => {
                     setShowPaymentModal(false);
                     resetPaymentForm();
                   }}
-                  className="p-2 hover:bg-slate-100 rounded-lg"
+                  className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
                 >
                   ✕
                 </button>
@@ -606,12 +674,13 @@ const RenterPayments = () => {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Payment Month
+                    Payment Month *
                   </label>
                   <select
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
+                    required
                   >
                     <option value="">Select Month</option>
                     {upcomingMonths.map(month => (
@@ -624,40 +693,49 @@ const RenterPayments = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Amount (৳)
+                    Amount (৳) *
                   </label>
                   <input
                     type="number"
                     value={paymentAmount}
                     onChange={(e) => setPaymentAmount(e.target.value)}
                     placeholder="Enter amount"
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
+                    required
+                    min="1"
+                    step="1"
                   />
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Payment Method
+                    Payment Method *
                   </label>
                   <div className="grid grid-cols-2 gap-2">
-                    {['bkash', 'nagad', 'bank_transfer', 'cash'].map(method => (
+                    {[
+                      { value: 'bkash', label: 'bKash', icon: <FaMobileAlt className="text-green-600" /> },
+                      { value: 'nagad', label: 'Nagad', icon: <FaMobileAlt className="text-red-600" /> },
+                      { value: 'bank_transfer', label: 'Bank Transfer', icon: <FaUniversity className="text-blue-600" /> },
+                      { value: 'cash', label: 'Cash', icon: <FaMoneyBillWave className="text-slate-600" /> }
+                    ].map(method => (
                       <label
-                        key={method}
-                        className={`p-3 border rounded-lg cursor-pointer flex items-center justify-center gap-2 ${
-                          paymentMethod === method 
-                            ? 'border-violet-600 bg-violet-50' 
-                            : 'hover:bg-slate-50'
+                        key={method.value}
+                        className={`p-3 border rounded-lg cursor-pointer flex items-center justify-center gap-2 transition-all ${
+                          paymentMethod === method.value 
+                            ? 'border-violet-600 bg-violet-50 ring-2 ring-violet-200' 
+                            : 'hover:bg-slate-50 hover:border-slate-400'
                         }`}
                       >
                         <input
                           type="radio"
                           name="paymentMethod"
-                          value={method}
-                          checked={paymentMethod === method}
+                          value={method.value}
+                          checked={paymentMethod === method.value}
                           onChange={(e) => setPaymentMethod(e.target.value)}
                           className="hidden"
                         />
-                        <span className="font-medium capitalize">{method.replace('_', ' ')}</span>
+                        {method.icon}
+                        <span className="font-medium capitalize">{method.label}</span>
                       </label>
                     ))}
                   </div>
@@ -665,15 +743,19 @@ const RenterPayments = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Transaction ID / Reference
+                    Transaction ID / Reference *
                   </label>
                   <input
                     type="text"
                     value={transactionId}
                     onChange={(e) => setTransactionId(e.target.value)}
                     placeholder="Enter transaction ID"
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500 transition-shadow"
+                    required
                   />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Enter the transaction ID from your payment confirmation
+                  </p>
                 </div>
               </div>
 
@@ -683,15 +765,26 @@ const RenterPayments = () => {
                     setShowPaymentModal(false);
                     resetPaymentForm();
                   }}
-                  className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+                  className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                  disabled={submitting}
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleMakePayment}
-                  className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700"
+                  disabled={submitting}
+                  className={`px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors flex items-center gap-2 ${
+                    submitting ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
                 >
-                  Submit Payment
+                  {submitting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                      Processing...
+                    </>
+                  ) : (
+                    'Submit Payment'
+                  )}
                 </button>
               </div>
             </div>
