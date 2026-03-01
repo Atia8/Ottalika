@@ -1,4 +1,3 @@
-// frontend/src/components/owner/OwnerPayments.tsx - FIXED WITH HOOK
 import { CheckCircle, XCircle, Search, Calendar, Clock, AlertCircle, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { format } from 'date-fns';

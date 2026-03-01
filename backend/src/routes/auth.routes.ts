@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../database/db';
-import { authenticateToken } from '../middleware/auth';
+import { authenticate } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -484,8 +484,8 @@ router.get('/test', testAuth);
 router.get('/check-email', checkEmail);
 
 // Protected routes
-router.get('/profile', authenticateToken, getProfile);
-router.put('/profile', authenticateToken, updateProfile);
-router.put('/change-password', authenticateToken, changePassword);
+router.get('/profile', authenticate, getProfile);
+router.put('/profile', authenticate, updateProfile);
+router.put('/change-password', authenticate, changePassword);
 
 export default router;

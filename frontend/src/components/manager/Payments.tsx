@@ -1,747 +1,583 @@
 // src/components/manager/ManagerPayments.tsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { 
-  FaMoneyBillWave, 
-  FaClock, 
-  FaCheckCircle, 
-  FaTimesCircle,
-  FaSearch,
-  FaFilter,
-  FaCheck,
-  FaTimes,
-  FaEye,
-  FaDownload,
-  FaCalendar,
-  FaUser,
-  FaHome,
-  FaCreditCard,
-  FaBuilding,
-  FaFileInvoice,
+import {
+  FaMoneyBillWave,
+  FaClock,
+  FaCheckCircle,
   FaExclamationCircle,
-  FaSync
+  FaSync,
+  FaArrowUp,
+  FaArrowDown,
+  FaEye,
+  FaCalendarAlt,
+  FaUser,
+  FaBuilding,
+  FaFilter
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 interface Payment {
-  id: string;
-  renterName: string;
-  apartment: string;
-  type: string;
-  amount: number;
+  id: number;
   month: string;
-  paymentDate: string;
-  paymentMethod: string;
-  reference: string;
-  status: 'pending_verification' | 'verified' | 'rejected' | 'pending_review';
-  submittedAt: string;
-  renterEmail?: string;
-  renterPhone?: string;
-  floor?: string;
-  building?: string;
-  notes?: string;
-  verifiedAt?: string;
+  amount: number;
+  status: 'pending' | 'paid' | 'overdue';
+  display_status: 'pending' | 'overdue' | 'paid';
+  due_date: string;
+  paid_at?: string;
+  payment_method?: string;
+  transaction_id?: string;
+  renter_name: string;
+  renter_email: string;
+  renter_phone: string;
+  apartment_number: string;
+  building_name: string;
+  confirmation_status?: string;
+  verified_at?: string;
+  year?: number;
+  month_display?: string;
+}
+
+interface PaymentSummary {
+  total_pending: number;
+  total_overdue: number;
+  total_paid: number;
+  amount_pending: number;
+  amount_overdue: number;
+  amount_paid: number;
+}
+
+interface Pagination {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+interface FilterOptions {
+  years: number[];
+  renters: { id: number; name: string; }[];
+  statuses: string[];
 }
 
 const ManagerPayments = () => {
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [stats, setStats] = useState({
-    totalAmount: 0,
-    totalCount: 0,
-    pending: 0,
-    verified: 0,
-    rejected: 0
+  const [summary, setSummary] = useState<PaymentSummary>({
+    total_pending: 0,
+    total_overdue: 0,
+    total_paid: 0,
+    amount_pending: 0,
+    amount_overdue: 0,
+    amount_paid: 0
   });
+  const [pagination, setPagination] = useState<Pagination>({
+    total: 0,
+    page: 1,
+    limit: 20,
+    totalPages: 0
+  });
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState({
+    year: 'all',
+    month: 'all',
+    status: 'all',
+    renter_id: 'all'
+  });
+  const [availableMonths, setAvailableMonths] = useState<{value: string, display_month: string}[]>([]);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
+    years: [],
+    renters: [],
+    statuses: ['all', 'paid', 'pending', 'overdue']
+  });
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
-  const [showModal, setShowModal] = useState(false);
-  const [verifyingPaymentId, setVerifyingPaymentId] = useState<string | null>(null);
-  const [selectedPayments, setSelectedPayments] = useState<string[]>([]);
+  const [verificationNote, setVerificationNote] = useState('');
+  const [verifyingId, setVerifyingId] = useState<number | null>(null);
+  const [sortField, setSortField] = useState<'month' | 'amount' | 'renter_name'>('month');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     fetchPayments();
+  }, [filters, pagination.page, sortField, sortDirection]);
+
+  useEffect(() => {
+    fetchFilters();
   }, []);
-
-  const fetchPayments = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      
-      try {
-        const response = await axios.get(`${API_URL}/manager/payments/pending`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        
-        if (response.data.success) {
-          const paymentsData = response.data.data.pendingPayments || [];
-          setPayments(paymentsData);
-          updateStats(paymentsData);
-        } else {
-          toast.error('Failed to fetch payments');
-          useMockData();
-        }
-      } catch (apiError) {
-        console.log('API endpoint not available, using mock data');
-        useMockData();
-      }
-    } catch (error) {
-      console.error('Failed to fetch payments:', error);
-      toast.error('Error loading payments data');
-      useMockData();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const useMockData = () => {
-    const mockPayments: Payment[] = [
-      {
-        id: '1',
-        renterName: 'John Doe',
-        apartment: '101',
-        type: 'rent',
-        amount: 50000,
-        month: 'January 2024',
-        paymentDate: '2024-01-05',
-        paymentMethod: 'bank_transfer',
-        reference: 'TRX-123456',
-        status: 'pending_verification',
-        submittedAt: '2024-01-05T10:30:00Z',
-        renterEmail: 'john@example.com',
-        renterPhone: '+8801234567890',
-        floor: '1',
-        building: 'Main Building'
-      },
-      {
-        id: '2',
-        renterName: 'Sarah Smith',
-        apartment: '102',
-        type: 'rent',
-        amount: 55000,
-        month: 'January 2024',
-        paymentDate: '2024-01-05',
-        paymentMethod: 'cash',
-        reference: 'CASH-001',
-        status: 'pending_review',
-        submittedAt: '2024-01-05T14:20:00Z',
-        renterEmail: 'sarah@example.com',
-        renterPhone: '+8801987654321',
-        floor: '1',
-        building: 'Main Building'
-      },
-      {
-        id: '3',
-        renterName: 'Robert Johnson',
-        apartment: '201',
-        type: 'rent',
-        amount: 60000,
-        month: 'January 2024',
-        paymentDate: '2024-01-04',
-        paymentMethod: 'mobile_banking',
-        reference: 'MB-789012',
-        status: 'verified',
-        submittedAt: '2024-01-04T09:15:00Z',
-        verifiedAt: '2024-01-05T11:30:00Z',
-        renterEmail: 'robert@example.com',
-        renterPhone: '+8801122334455',
-        floor: '2',
-        building: 'Main Building'
-      },
-      {
-        id: '4',
-        renterName: 'Emily Brown',
-        apartment: '202',
-        type: 'late_fee',
-        amount: 5000,
-        month: 'December 2023',
-        paymentDate: '2024-01-03',
-        paymentMethod: 'online',
-        reference: 'ONL-456789',
-        status: 'rejected',
-        submittedAt: '2024-01-03T16:45:00Z',
-        notes: 'Payment screenshot not clear',
-        renterEmail: 'emily@example.com',
-        renterPhone: '+8801567890123',
-        floor: '2',
-        building: 'Main Building'
-      }
-    ];
+const fetchPayments = async () => {
+  try {
+    setLoading(true);
+    const token = localStorage.getItem('token');
     
-    setPayments(mockPayments);
-    updateStats(mockPayments);
-  };
-
-  const updateStats = (paymentsData: Payment[]) => {
-    const totalAmount = paymentsData.reduce((sum, payment) => sum + payment.amount, 0);
-    const totalCount = paymentsData.length;
-    const pending = paymentsData.filter(p => 
-      p.status === 'pending_verification' || p.status === 'pending_review'
-    ).length;
-    const verified = paymentsData.filter(p => p.status === 'verified').length;
-    const rejected = paymentsData.filter(p => p.status === 'rejected').length;
-    
-    setStats({ totalAmount, totalCount, pending, verified, rejected });
-  };
-
-  const handleVerifyPayment = async (paymentId: string) => {
-    setVerifyingPaymentId(paymentId);
-    
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_URL}/manager/payments/${paymentId}/verify`,
-        {
-          status: 'verified',
-          notes: 'Payment verified successfully'
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-      
-      if (response.data.success) {
-        toast.success('Payment verified successfully!');
-        
-        // Update local state
-        setPayments(prev => 
-          prev.map(payment => 
-            payment.id === paymentId 
-              ? { ...payment, status: 'verified', verifiedAt: new Date().toISOString() }
-              : payment
-          )
-        );
-        
-        // Update stats
-        setStats(prev => ({
-          ...prev,
-          pending: Math.max(0, prev.pending - 1),
-          verified: prev.verified + 1
-        }));
-      } else {
-        toast.error(response.data.message || 'Failed to verify payment');
-      }
-    } catch (error) {
-      console.error('Failed to verify payment:', error);
-      
-      // For demo purposes, simulate success
-      setPayments(prev => 
-        prev.map(payment => 
-          payment.id === paymentId 
-            ? { ...payment, status: 'verified', verifiedAt: new Date().toISOString() }
-            : payment
-        )
-      );
-      
-      setStats(prev => ({
-        ...prev,
-        pending: Math.max(0, prev.pending - 1),
-        verified: prev.verified + 1
-      }));
-      
-      toast.success('Payment verified successfully!');
-    } finally {
-      setVerifyingPaymentId(null);
-    }
-  };
-
-  const handleRejectPayment = async (paymentId: string) => {
-    const reason = prompt('Enter rejection reason:');
-    if (!reason) return;
-    
-    setVerifyingPaymentId(paymentId);
-    
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_URL}/manager/payments/${paymentId}/verify`,
-        {
-          status: 'rejected',
-          notes: reason
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
-        }
-      );
-      
-      if (response.data.success) {
-        toast.success('Payment rejected!');
-        
-        // Update local state
-        setPayments(prev => 
-          prev.map(payment => 
-            payment.id === paymentId 
-              ? { ...payment, status: 'rejected', notes: reason }
-              : payment
-          )
-        );
-        
-        // Update stats
-        setStats(prev => ({
-          ...prev,
-          pending: Math.max(0, prev.pending - 1),
-          rejected: prev.rejected + 1
-        }));
-      } else {
-        toast.error(response.data.message || 'Failed to reject payment');
-      }
-    } catch (error) {
-      console.error('Failed to reject payment:', error);
-      
-      // For demo purposes, simulate success
-      setPayments(prev => 
-        prev.map(payment => 
-          payment.id === paymentId 
-            ? { ...payment, status: 'rejected', notes: reason }
-            : payment
-        )
-      );
-      
-      setStats(prev => ({
-        ...prev,
-        pending: Math.max(0, prev.pending - 1),
-        rejected: prev.rejected + 1
-      }));
-      
-      toast.success('Payment rejected!');
-    } finally {
-      setVerifyingPaymentId(null);
-    }
-  };
-
-  const handleViewDetails = (payment: Payment) => {
-    setSelectedPayment(payment);
-    setShowModal(true);
-  };
-
-  const handleBulkVerify = async () => {
-    if (selectedPayments.length === 0) {
-      toast.error('Please select payments to verify');
-      return;
-    }
-    
-    if (window.confirm(`Verify ${selectedPayments.length} selected payment(s)?`)) {
-      try {
-        const token = localStorage.getItem('token');
-        
-        // Update each selected payment
-        for (const paymentId of selectedPayments) {
-          const payment = payments.find(p => p.id === paymentId);
-          if (payment && (payment.status === 'pending_verification' || payment.status === 'pending_review')) {
-            await handleVerifyPayment(paymentId);
-          }
-        }
-        
-        setSelectedPayments([]);
-        toast.success(`Successfully verified ${selectedPayments.length} payment(s)`);
-      } catch (error) {
-        console.error('Bulk verify error:', error);
-        toast.error('Failed to bulk verify payments');
-      }
-    }
-  };
-
-  const handleSelectPayment = (paymentId: string) => {
-    setSelectedPayments(prev => {
-      if (prev.includes(paymentId)) {
-        return prev.filter(id => id !== paymentId);
-      } else {
-        return [...prev, paymentId];
-      }
+    // Build params - KEEP year filter, but DON'T send month to backend
+    const params = new URLSearchParams({
+      page: pagination.page.toString(),
+      limit: pagination.limit.toString(),
+      ...(filters.year !== 'all' && { year: filters.year }), // ✅ KEEP THIS
+      // ...(filters.month !== 'all' && { month: filters.month }), // ❌ REMOVE THIS
+      ...(filters.status !== 'all' && { status: filters.status }),
+      ...(filters.renter_id !== 'all' && { renter_id: filters.renter_id })
     });
-  };
-
-  const handleSelectAll = () => {
-    const pendingPaymentIds = filteredPayments
-      .filter(p => p.status === 'pending_verification' || p.status === 'pending_review')
-      .map(p => p.id);
     
-    if (selectedPayments.length === pendingPaymentIds.length) {
-      setSelectedPayments([]);
+    console.log('Sending params:', params.toString()); // Debug
+    
+    const response = await axios.get(`${API_URL}/manager/payments?${params}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (response.data.success) {
+      let filteredPayments = response.data.data.payments || [];
+      
+      // MANUALLY filter by month in the frontend
+      if (filters.month !== 'all') {
+        const selectedDate = new Date(filters.month + 'T12:00:00');
+        const selectedMonth = selectedDate.getMonth(); // 0-11
+        const selectedYear = selectedDate.getFullYear();
+        
+        filteredPayments = filteredPayments.filter((p: Payment) => {
+          const paymentDate = new Date(p.month);
+          return paymentDate.getMonth() === selectedMonth && 
+                 paymentDate.getFullYear() === selectedYear;
+        });
+      }
+      
+      setPayments(filteredPayments);
+      setSummary(response.data.data.summary || {
+        total_pending: 0,
+        total_overdue: 0,
+        total_paid: 0,
+        amount_pending: 0,
+        amount_overdue: 0,
+        amount_paid: 0
+      });
+      setPagination(response.data.data.pagination || {
+        total: 0,
+        page: 1,
+        limit: 20,
+        totalPages: 0
+      });
+    }
+  } catch (error) {
+    console.error('Error fetching payments:', error);
+    toast.error('Failed to load payments');
+  } finally {
+    setLoading(false);
+  }
+};
+const fetchFilters = async () => {
+  try {
+    const token = localStorage.getItem('token');
+    
+    // Fetch available months
+    const monthsResponse = await axios.get(`${API_URL}/manager/payments/months`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (monthsResponse.data.success) {
+      // Process months to show only month name
+      const months = (monthsResponse.data.months || []).map((month: any) => {
+        const date = new Date(month.value + 'T12:00:00');
+        return {
+          value: month.value,
+          display_month: date.toLocaleDateString('en-US', { month: 'long' })
+        };
+      });
+      setAvailableMonths(months);
+    }
+    
+    // Fetch renters for filter
+    const rentersResponse = await axios.get(`${API_URL}/manager/renters?status=active`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (rentersResponse.data.success) {
+      setFilterOptions(prev => ({
+        ...prev,
+        // 👇 HARDCODE THE YEARS HERE
+        years: [2027, 2026, 2025],
+        renters: rentersResponse.data.data.renters?.map((r: any) => ({
+          id: r.id,
+          name: r.name
+        })) || []
+      }));
+    }
+  } catch (error) {
+    console.error('Error fetching filters:', error);
+    // Fallback years
+    setFilterOptions(prev => ({
+      ...prev,
+      years: [2027, 2026, 2025]
+    }));
+  }
+};
+  const handleVerifyPayment = async (paymentId: number, status: 'verified' | 'rejected') => {
+    try {
+      setVerifyingId(paymentId);
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.post(`${API_URL}/manager/payments/${paymentId}/verify`, {
+        status,
+        notes: verificationNote
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        toast.success(`Payment ${status} successfully!`);
+        setShowVerificationModal(false);
+        setSelectedPayment(null);
+        setVerificationNote('');
+        fetchPayments();
+      }
+    } catch (error) {
+      console.error('Error verifying payment:', error);
+      toast.error('Failed to verify payment');
+    } finally {
+      setVerifyingId(null);
+    }
+  };
+
+  const handleSort = (field: 'month' | 'amount' | 'renter_name') => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
-      setSelectedPayments(pendingPaymentIds);
+      setSortField(field);
+      setSortDirection('asc');
     }
   };
 
-  const handleExportPayments = () => {
-    const csvContent = [
-      ['Renter Name', 'Apartment', 'Type', 'Amount', 'Month', 'Payment Date', 'Method', 'Reference', 'Status', 'Building', 'Floor', 'Submitted At'],
-      ...payments.map(payment => [
-        payment.renterName,
-        payment.apartment,
-        payment.type,
-        `৳${payment.amount}`,
-        payment.month,
-        new Date(payment.paymentDate).toLocaleDateString(),
-        payment.paymentMethod,
-        payment.reference,
-        payment.status.replace('_', ' ').toUpperCase(),
-        payment.building || 'Main Building',
-        payment.floor || '-',
-        new Date(payment.submittedAt).toLocaleString()
-      ])
-    ].map(row => row.join(',')).join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `payment-verifications-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    toast.success('Payments exported successfully!');
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'verified': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-      case 'rejected': return 'bg-rose-100 text-rose-700 border-rose-200';
-      case 'pending_verification': return 'bg-amber-100 text-amber-700 border-amber-200';
-      case 'pending_review': return 'bg-blue-100 text-blue-700 border-blue-200';
-      default: return 'bg-slate-100 text-slate-700 border-slate-200';
+  const getStatusBadge = (payment: Payment) => {
+    if (payment.display_status === 'overdue') {
+      return (
+        <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-rose-100 text-rose-700 rounded-full text-sm font-medium">
+          <FaExclamationCircle />
+          Overdue
+        </span>
+      );
     }
-  };
-
-  const getPaymentMethodIcon = (method: string) => {
-    switch (method) {
-      case 'bank_transfer': return '🏦';
-      case 'cash': return '💵';
-      case 'mobile_banking': return '📱';
-      case 'online': return '🌐';
-      default: return '💳';
+    if (payment.display_status === 'pending') {
+      return (
+        <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-amber-100 text-amber-700 rounded-full text-sm font-medium">
+          <FaClock />
+          Pending
+        </span>
+      );
     }
+    if (payment.status === 'paid') {
+      if (payment.confirmation_status === 'verified') {
+        return (
+          <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium">
+            <FaCheckCircle />
+            Verified
+          </span>
+        );
+      }
+      return (
+        <span className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-sm font-medium">
+          <FaCheckCircle />
+          Paid
+        </span>
+      );
+    }
+    return null;
   };
 
-  const filteredPayments = payments.filter(payment => {
-    if (statusFilter === 'all') return true;
-    return payment.status === statusFilter;
-  }).filter(payment => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
+  const formatCurrency = (amount: number) => {
+    return `৳${amount.toLocaleString('en-BD')}`;
+  };
+
+  const formatMonthDisplay = (monthValue: string) => {
+    if (!monthValue || monthValue === 'all') return 'All Months';
+    const date = new Date(monthValue + 'T12:00:00');
+    return date.toLocaleDateString('en-US', { month: 'long' });
+  };
+
+  if (loading && payments.length === 0) {
     return (
-      payment.renterName.toLowerCase().includes(term) ||
-      payment.apartment.toLowerCase().includes(term) ||
-      payment.reference.toLowerCase().includes(term) ||
-      payment.type.toLowerCase().includes(term) ||
-      (payment.building && payment.building.toLowerCase().includes(term))
-    );
-  });
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-violet-600"></div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Payment Verification</h1>
-          <p className="text-slate-600">Verify and manage payment transactions</p>
+          <h1 className="text-2xl font-bold text-slate-900">Payments Management</h1>
+          <p className="text-slate-600">View and manage all rent payments</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={fetchPayments}
-            className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 flex items-center gap-2"
-            disabled={loading}
-          >
-            <FaSync className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
-          <button 
-            onClick={handleExportPayments}
-            className="px-4 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 flex items-center gap-2"
-          >
-            <FaDownload />
-            Export
-          </button>
-        </div>
+        <button
+          onClick={fetchPayments}
+          className="px-4 py-2 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 flex items-center gap-2"
+        >
+          <FaSync />
+          Refresh
+        </button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="bg-white p-4 rounded-xl border">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-xl border p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Total Pending</p>
-              <p className="text-2xl font-bold mt-2">৳{stats.totalAmount.toLocaleString()}</p>
-              <p className="text-sm text-slate-600 mt-1">{stats.totalCount} transactions</p>
+              <p className="text-sm text-slate-600">Pending Payments</p>
+              <p className="text-2xl font-bold text-amber-600">{summary.total_pending}</p>
+              <p className="text-sm text-slate-500 mt-1">
+                Amount: {formatCurrency(summary.amount_pending)}
+              </p>
             </div>
-            <FaMoneyBillWave className="text-2xl text-violet-500" />
+            <div className="p-4 bg-amber-100 rounded-full">
+              <FaClock className="text-2xl text-amber-600" />
+            </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border">
+
+        <div className="bg-white rounded-xl border p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Pending Verification</p>
-              <p className="text-2xl font-bold mt-2 text-amber-600">{stats.pending}</p>
+              <p className="text-sm text-slate-600">Overdue Payments</p>
+              <p className="text-2xl font-bold text-rose-600">{summary.total_overdue}</p>
+              <p className="text-sm text-slate-500 mt-1">
+                Amount: {formatCurrency(summary.amount_overdue)}
+              </p>
             </div>
-            <FaClock className="text-2xl text-amber-500" />
+            <div className="p-4 bg-rose-100 rounded-full">
+              <FaExclamationCircle className="text-2xl text-rose-600" />
+            </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-xl border">
+
+        <div className="bg-white rounded-xl border p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600">Verified</p>
-              <p className="text-2xl font-bold mt-2 text-emerald-600">{stats.verified}</p>
+              <p className="text-sm text-slate-600">Collected</p>
+              <p className="text-2xl font-bold text-emerald-600">{summary.total_paid}</p>
+              <p className="text-sm text-slate-500 mt-1">
+                Amount: {formatCurrency(summary.amount_paid)}
+              </p>
             </div>
-            <FaCheckCircle className="text-2xl text-emerald-500" />
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Rejected</p>
-              <p className="text-2xl font-bold mt-2 text-rose-600">{stats.rejected}</p>
+            <div className="p-4 bg-emerald-100 rounded-full">
+              <FaMoneyBillWave className="text-2xl text-emerald-600" />
             </div>
-            <FaTimesCircle className="text-2xl text-rose-500" />
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-slate-600">Selected</p>
-              <p className="text-2xl font-bold mt-2 text-violet-600">{selectedPayments.length}</p>
-              <p className="text-sm text-slate-600 mt-1">payments selected</p>
-            </div>
-            <FaFileInvoice className="text-2xl text-violet-500" />
           </div>
         </div>
       </div>
-
-      {/* Bulk Actions */}
-      {selectedPayments.length > 0 && (
-        <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-violet-100 rounded-lg">
-                <FaCheckCircle className="text-violet-600" />
-              </div>
-              <div>
-                <p className="font-medium text-violet-900">
-                  {selectedPayments.length} payment(s) selected
-                </p>
-                <p className="text-sm text-violet-600">
-                  Total amount: ৳{payments
-                    .filter(p => selectedPayments.includes(p.id))
-                    .reduce((sum, p) => sum + p.amount, 0)
-                    .toLocaleString()}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleBulkVerify}
-                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-2"
-              >
-                <FaCheck />
-                Verify Selected
-              </button>
-              <button
-                onClick={() => setSelectedPayments([])}
-                className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
-              >
-                Clear Selection
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Filters */}
-      <div className="bg-white p-4 rounded-xl border">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <div className="relative">
-              <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search by renter name, apartment, building, or reference..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
-              />
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
+      <div className="bg-white rounded-xl border p-4 shadow-sm">
+        <div className="flex items-center gap-2 mb-3">
+          <FaFilter className="text-slate-400" />
+          <span className="text-sm font-medium text-slate-700">Filter Payments</span>
+        </div>
+        <div className="flex flex-wrap gap-4">
+          {/* Year Filter */}
+          <div className="flex-1 min-w-[150px]">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Year</label>
             <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+              value={filters.year}
+              onChange={(e) => setFilters({ ...filters, year: e.target.value, page: 1 })}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+            >
+              <option value="all">All Years</option>
+              {filterOptions.years.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Month Filter - Now shows only month names */}
+          <div className="flex-1 min-w-[150px]">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Month</label>
+            <select
+              value={filters.month}
+              onChange={(e) => setFilters({ ...filters, month: e.target.value, page: 1 })}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+            >
+              <option value="all">All Months</option>
+              {availableMonths.map((month) => (
+                <option key={month.value} value={month.value}>
+                  {month.display_month}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status Filter */}
+          <div className="flex-1 min-w-[150px]">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
+            <select
+              value={filters.status}
+              onChange={(e) => setFilters({ ...filters, status: e.target.value, page: 1 })}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
             >
               <option value="all">All Status</option>
-              <option value="pending_verification">Pending Verification</option>
-              <option value="pending_review">Pending Review</option>
-              <option value="verified">Verified</option>
-              <option value="rejected">Rejected</option>
+              <option value="pending">Pending</option>
+              <option value="overdue">Overdue</option>
+              <option value="paid">Paid</option>
             </select>
-            <button className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 flex items-center gap-2">
-              <FaFilter />
-              Filters
-            </button>
           </div>
+
+          {/* Renter Filter */}
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-sm font-medium text-slate-700 mb-1">Renter</label>
+            <select
+              value={filters.renter_id}
+              onChange={(e) => setFilters({ ...filters, renter_id: e.target.value, page: 1 })}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+            >
+              <option value="all">All Renters</option>
+              {filterOptions.renters.map(renter => (
+                <option key={renter.id} value={renter.id}>{renter.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        
+        {/* Active filters display */}
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <span className="text-slate-500">Active filters:</span>
+          <span className="px-2 py-1 bg-slate-100 rounded">
+            Year: {filters.year === 'all' ? 'All' : filters.year}
+          </span>
+          <span className="px-2 py-1 bg-slate-100 rounded">
+            Month: {filters.month === 'all' ? 'All' : formatMonthDisplay(filters.month)}
+          </span>
+          <span className="px-2 py-1 bg-slate-100 rounded">
+            Status: {filters.status === 'all' ? 'All' : filters.status}
+          </span>
+          <span className="px-2 py-1 bg-slate-100 rounded">
+            Renter: {filters.renter_id === 'all' ? 'All' : filterOptions.renters.find(r => r.id.toString() === filters.renter_id)?.name || 'Selected'}
+          </span>
         </div>
       </div>
 
       {/* Payments Table */}
-      <div className="bg-white rounded-xl border overflow-hidden">
+      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200">
+          <table className="w-full">
             <thead className="bg-slate-50">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={selectedPayments.length === filteredPayments.filter(p => 
-                        p.status === 'pending_verification' || p.status === 'pending_review'
-                      ).length}
-                      onChange={handleSelectAll}
-                      className="h-4 w-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500"
-                    />
+                <th 
+                  className="p-4 text-left text-sm font-medium text-slate-700 cursor-pointer hover:bg-slate-100"
+                  onClick={() => handleSort('renter_name')}
+                >
+                  <div className="flex items-center gap-1">
+                    Renter
+                    {sortField === 'renter_name' && (
+                      sortDirection === 'asc' ? <FaArrowUp className="text-xs" /> : <FaArrowDown className="text-xs" />
+                    )}
                   </div>
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
-                  Payment Details
+                <th className="p-4 text-left text-sm font-medium text-slate-700">Unit</th>
+                <th 
+                  className="p-4 text-left text-sm font-medium text-slate-700 cursor-pointer hover:bg-slate-100"
+                  onClick={() => handleSort('month')}
+                >
+                  <div className="flex items-center gap-1">
+                    Month
+                    {sortField === 'month' && (
+                      sortDirection === 'asc' ? <FaArrowUp className="text-xs" /> : <FaArrowDown className="text-xs" />
+                    )}
+                  </div>
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
-                  Renter & Location
+                <th 
+                  className="p-4 text-left text-sm font-medium text-slate-700 cursor-pointer hover:bg-slate-100"
+                  onClick={() => handleSort('amount')}
+                >
+                  <div className="flex items-center gap-1">
+                    Amount
+                    {sortField === 'amount' && (
+                      sortDirection === 'asc' ? <FaArrowUp className="text-xs" /> : <FaArrowDown className="text-xs" />
+                    )}
+                  </div>
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
-                  Payment Info
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-600 uppercase tracking-wider">
-                  Actions
-                </th>
+                <th className="p-4 text-left text-sm font-medium text-slate-700">Due Date</th>
+                <th className="p-4 text-left text-sm font-medium text-slate-700">Status</th>
+                <th className="p-4 text-left text-sm font-medium text-slate-700">Actions</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-slate-200">
-              {filteredPayments.length === 0 ? (
+            <tbody className="divide-y divide-slate-200">
+              {payments.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-slate-500">
+                  <td colSpan={7} className="p-8 text-center text-slate-500">
                     <FaExclamationCircle className="text-3xl text-slate-300 mx-auto mb-2" />
                     <p className="text-lg">No payments found</p>
-                    <p className="text-sm text-slate-400 mt-1">Try adjusting your search or filters</p>
+                    <p className="text-sm text-slate-400 mt-1">Try adjusting your filters</p>
                   </td>
                 </tr>
               ) : (
-                filteredPayments.map((payment) => (
+                payments.map(payment => (
                   <tr key={payment.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-4">
-                      <input
-                        type="checkbox"
-                        checked={selectedPayments.includes(payment.id)}
-                        onChange={() => handleSelectPayment(payment.id)}
-                        disabled={payment.status === 'verified' || payment.status === 'rejected'}
-                        className="h-4 w-4 text-violet-600 rounded border-slate-300 focus:ring-violet-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                      />
-                    </td>
-                    <td className="px-6 py-4">
+                    <td className="p-4">
                       <div>
-                        <p className="font-medium text-slate-900 capitalize">{payment.type}</p>
-                        <p className="text-sm text-slate-600">{payment.month}</p>
-                        <div className="flex items-center gap-2 mt-2 text-xs text-slate-500">
-                          <FaCalendar />
-                          <span>
-                            {new Date(payment.paymentDate).toLocaleDateString('en-US', {
-                              month: 'short',
-                              day: 'numeric',
-                              year: 'numeric'
+                        <p className="font-medium text-slate-900">{payment.renter_name}</p>
+                        <p className="text-sm text-slate-500">{payment.renter_email}</p>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <p className="font-medium">{payment.apartment_number}</p>
+                      <p className="text-sm text-slate-500">{payment.building_name}</p>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
+                        <FaCalendarAlt className="text-slate-400 text-sm" />
+                        <div>
+                          <p className="font-medium">
+                            {new Date(payment.month).toLocaleDateString('en-US', { 
+                              month: 'long', 
+                              year: 'numeric' 
                             })}
-                          </span>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 bg-blue-100 rounded-lg">
-                          <FaUser className="text-blue-600" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-slate-900">{payment.renterName}</p>
-                          <div className="flex items-center gap-3 text-sm text-slate-500 mt-1">
-                            <div className="flex items-center gap-1">
-                              <FaHome className="text-xs" />
-                              <span>#{payment.apartment}</span>
-                            </div>
-                            {payment.floor && (
-                              <div className="flex items-center gap-1">
-                                <FaBuilding className="text-xs" />
-                                <span>Floor {payment.floor}</span>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <p className="font-medium text-lg text-slate-900">৳{payment.amount.toLocaleString()}</p>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl">{getPaymentMethodIcon(payment.paymentMethod)}</span>
-                        <div>
-                          <p className="font-medium text-slate-900 capitalize">
-                            {payment.paymentMethod.replace('_', ' ')}
                           </p>
-                          <p className="text-xs text-slate-600 font-mono">{payment.reference}</p>
+                          {payment.year && (
+                            <span className="text-xs bg-slate-100 px-2 py-0.5 rounded">
+                              Year: {payment.year}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col gap-1">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(payment.status)}`}>
-                          {payment.status.replace('_', ' ').toUpperCase()}
-                        </span>
-                        {payment.verifiedAt && (
-                          <span className="text-xs text-slate-500">
-                            {new Date(payment.verifiedAt).toLocaleDateString()}
-                          </span>
-                        )}
+                    <td className="p-4 font-bold">{formatCurrency(payment.amount)}</td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
+                        <FaCalendarAlt className="text-slate-400 text-sm" />
+                        <div>
+                          <p className="text-sm">{new Date(payment.due_date).toLocaleDateString()}</p>
+                          {payment.paid_at && (
+                            <p className="text-xs text-emerald-600">
+                              Paid: {new Date(payment.paid_at).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="p-4">
+                      {getStatusBadge(payment)}
+                    </td>
+                    <td className="p-4">
                       <div className="flex items-center gap-2">
-                        {(payment.status === 'pending_verification' || payment.status === 'pending_review') && (
-                          <>
-                            <button
-                              onClick={() => handleVerifyPayment(payment.id)}
-                              disabled={verifyingPaymentId === payment.id}
-                              className="px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              {verifyingPaymentId === payment.id ? (
-                                <div className="w-4 h-4 border-t-2 border-white rounded-full animate-spin"></div>
-                              ) : (
-                                <FaCheck />
-                              )}
-                              Verify
-                            </button>
-                            <button
-                              onClick={() => handleRejectPayment(payment.id)}
-                              disabled={verifyingPaymentId === payment.id}
-                              className="px-3 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 text-sm flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <FaTimes />
-                              Reject
-                            </button>
-                          </>
+                        {payment.status === 'paid' && payment.confirmation_status === 'pending_review' && (
+                          <button
+                            onClick={() => {
+                              setSelectedPayment(payment);
+                              setShowVerificationModal(true);
+                            }}
+                            className="px-3 py-1.5 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm"
+                          >
+                            Verify
+                          </button>
                         )}
-                        <button 
-                          onClick={() => handleViewDetails(payment)}
-                          className="p-2 text-slate-600 hover:text-violet-600 hover:bg-violet-50 rounded-lg"
+                        <button
+                          className="p-2 hover:bg-slate-100 rounded-lg text-blue-600"
                           title="View Details"
+                          onClick={() => {
+                            setSelectedPayment(payment);
+                            setShowVerificationModal(true);
+                          }}
                         >
                           <FaEye />
                         </button>
@@ -753,179 +589,94 @@ const ManagerPayments = () => {
             </tbody>
           </table>
         </div>
-      </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-xl border">
-          <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <FaMoneyBillWave className="text-violet-600" />
-            Verification Summary
-          </h3>
-          <div className="space-y-4">
-            <div className="flex justify-between items-center p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-              <span className="text-slate-600">Pending Verification</span>
-              <span className="font-semibold text-amber-600">{stats.pending} payments</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-              <span className="text-slate-600">Total Amount Pending</span>
-              <span className="font-semibold text-lg">৳{stats.totalAmount.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between items-center p-3 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-              <span className="text-slate-600">Verification Rate</span>
-              <span className="font-semibold text-emerald-600">
-                {payments.length > 0 
-                  ? `${Math.round((stats.verified / payments.length) * 100)}%`
-                  : '0%'}
+        {/* Pagination */}
+        {pagination.totalPages > 1 && (
+          <div className="px-4 py-3 border-t flex items-center justify-between">
+            <p className="text-sm text-slate-600">
+              Showing {((pagination.page - 1) * pagination.limit) + 1} to{' '}
+              {Math.min(pagination.page * pagination.limit, pagination.total)} of{' '}
+              {pagination.total} payments
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setPagination({ ...pagination, page: pagination.page - 1 })}
+                disabled={pagination.page === 1}
+                className="px-3 py-1 border rounded-lg disabled:opacity-50 hover:bg-slate-50"
+              >
+                Previous
+              </button>
+              <span className="px-3 py-1">
+                Page {pagination.page} of {pagination.totalPages}
               </span>
+              <button
+                onClick={() => setPagination({ ...pagination, page: pagination.page + 1 })}
+                disabled={pagination.page === pagination.totalPages}
+                className="px-3 py-1 border rounded-lg disabled:opacity-50 hover:bg-slate-50"
+              >
+                Next
+              </button>
             </div>
           </div>
-        </div>
-        
-        <div className="bg-white p-6 rounded-xl border">
-          <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-            <FaCreditCard className="text-violet-600" />
-            Quick Actions
-          </h3>
-          <div className="space-y-3">
-            <button 
-              onClick={() => window.location.href = '/manager/payments/history'}
-              className="w-full text-left p-3 bg-slate-50 hover:bg-slate-100 rounded-lg flex items-center gap-2 transition-colors"
-            >
-              <FaFileInvoice className="text-violet-600" />
-              View All Payment History
-            </button>
-            <button className="w-full text-left p-3 bg-slate-50 hover:bg-slate-100 rounded-lg flex items-center gap-2 transition-colors">
-              <FaExclamationCircle className="text-amber-600" />
-              Send Payment Reminders
-            </button>
-            <button 
-              onClick={handleExportPayments}
-              className="w-full text-left p-3 bg-slate-50 hover:bg-slate-100 rounded-lg flex items-center gap-2 transition-colors"
-            >
-              <FaDownload className="text-violet-600" />
-              Generate Detailed Report
-            </button>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Payment Details Modal */}
-      {showModal && selectedPayment && (
+      {/* Verification Modal */}
+      {showVerificationModal && selectedPayment && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl max-w-md w-full">
             <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-slate-900">Payment Details</h2>
-                <button
-                  onClick={() => setShowModal(false)}
-                  className="p-2 hover:bg-slate-100 rounded-lg"
-                >
-                  <FaTimes className="text-slate-500" />
-                </button>
-              </div>
+              <h3 className="text-xl font-bold text-slate-900 mb-4">Verify Payment</h3>
               
-              <div className="space-y-6">
-                {/* Payment Summary */}
-                <div className="bg-slate-50 p-4 rounded-lg">
-                  <h3 className="font-medium text-slate-900 mb-3">Payment Summary</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-slate-600">Amount</p>
-                      <p className="text-2xl font-bold text-slate-900">৳{selectedPayment.amount.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-slate-600">Status</p>
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(selectedPayment.status)}`}>
-                        {selectedPayment.status.replace('_', ' ').toUpperCase()}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Renter Information */}
-                <div>
-                  <h3 className="font-medium text-slate-900 mb-3">Renter Information</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-slate-600">Name</p>
-                      <p className="font-medium">{selectedPayment.renterName}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-slate-600">Apartment</p>
-                      <p className="font-medium">#{selectedPayment.apartment}</p>
-                    </div>
-                    {selectedPayment.renterEmail && (
-                      <div>
-                        <p className="text-sm text-slate-600">Email</p>
-                        <p className="font-medium">{selectedPayment.renterEmail}</p>
-                      </div>
-                    )}
-                    {selectedPayment.renterPhone && (
-                      <div>
-                        <p className="text-sm text-slate-600">Phone</p>
-                        <p className="font-medium">{selectedPayment.renterPhone}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                
-                {/* Payment Details */}
-                <div>
-                  <h3 className="font-medium text-slate-900 mb-3">Payment Details</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-slate-600">Payment Method</p>
-                      <p className="font-medium capitalize">{selectedPayment.paymentMethod.replace('_', ' ')}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-slate-600">Reference</p>
-                      <p className="font-medium font-mono">{selectedPayment.reference}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-slate-600">Month</p>
-                      <p className="font-medium">{selectedPayment.month}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-slate-600">Payment Date</p>
-                      <p className="font-medium">
-                        {new Date(selectedPayment.paymentDate).toLocaleDateString('en-US', {
-                          month: 'long',
-                          day: 'numeric',
-                          year: 'numeric'
-                        })}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Notes */}
-                {selectedPayment.notes && (
-                  <div>
-                    <h3 className="font-medium text-slate-900 mb-3">Notes</h3>
-                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                      <p className="text-amber-800">{selectedPayment.notes}</p>
-                    </div>
-                  </div>
+              <div className="bg-slate-50 p-4 rounded-lg mb-4">
+                <p className="text-sm text-slate-600">Renter: {selectedPayment.renter_name}</p>
+                <p className="text-sm text-slate-600">Amount: {formatCurrency(selectedPayment.amount)}</p>
+                <p className="text-sm text-slate-600">
+                  Month: {new Date(selectedPayment.month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                </p>
+                {selectedPayment.transaction_id && (
+                  <p className="text-sm text-slate-600">Transaction ID: {selectedPayment.transaction_id}</p>
                 )}
-                
-                {/* Actions */}
-                {(selectedPayment.status === 'pending_verification' || selectedPayment.status === 'pending_review') && (
-                  <div className="flex justify-end gap-3 pt-6 border-t">
-                    <button
-                      onClick={() => handleRejectPayment(selectedPayment.id)}
-                      className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
-                    >
-                      Reject Payment
-                    </button>
-                    <button
-                      onClick={() => handleVerifyPayment(selectedPayment.id)}
-                      className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
-                    >
-                      Verify Payment
-                    </button>
-                  </div>
-                )}
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Verification Notes
+                </label>
+                <textarea
+                  value={verificationNote}
+                  onChange={(e) => setVerificationNote(e.target.value)}
+                  rows={3}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2"
+                  placeholder="Add any notes about this payment..."
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowVerificationModal(false);
+                    setSelectedPayment(null);
+                    setVerificationNote('');
+                  }}
+                  className="flex-1 px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleVerifyPayment(selectedPayment.id, 'rejected')}
+                  disabled={verifyingId === selectedPayment.id}
+                  className="flex-1 px-4 py-2 bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-50"
+                >
+                  Reject
+                </button>
+                <button
+                  onClick={() => handleVerifyPayment(selectedPayment.id, 'verified')}
+                  disabled={verifyingId === selectedPayment.id}
+                  className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  Verify
+                </button>
               </div>
             </div>
           </div>

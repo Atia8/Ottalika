@@ -21,7 +21,9 @@ import {
   FaBuilding,
   FaSync,
   FaPrint,
-  FaExclamationTriangle
+  FaExclamationTriangle,
+  FaHistory,
+  FaChartLine
 } from 'react-icons/fa';
 import { toast } from 'react-hot-toast';
 import * as XLSX from 'xlsx';
@@ -87,6 +89,8 @@ const Renters = () => {
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showRenewModal, setShowRenewModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [availableApartments, setAvailableApartments] = useState<Apartment[]>([]);
   const [stats, setStats] = useState<RenterStats>({
@@ -132,6 +136,15 @@ const Renters = () => {
     leaseStart: '',
     leaseEnd: ''
   });
+
+  const [renewData, setRenewData] = useState({
+    newEndDate: '',
+    rentIncreasePercent: 5.0,
+    increaseReason: 'annual_renewal'
+  });
+
+  const [rentHistory, setRentHistory] = useState<any[]>([]);
+  const [processingRenewal, setProcessingRenewal] = useState(false);
 
   useEffect(() => {
     fetchRenters();
@@ -289,6 +302,39 @@ const Renters = () => {
     setShowApproveModal(true);
   };
 
+  const handleRenewLease = (renter: Renter) => {
+    setSelectedRenter(renter);
+    // Set default new end date to 1 year from current lease end
+    const currentEnd = new Date(renter.leaseEnd);
+    const newEnd = new Date(currentEnd);
+    newEnd.setFullYear(currentEnd.getFullYear() + 1);
+    
+    setRenewData({
+      newEndDate: newEnd.toISOString().split('T')[0],
+      rentIncreasePercent: 5.0,
+      increaseReason: 'annual_renewal'
+    });
+    setShowRenewModal(true);
+  };
+
+  const handleViewHistory = async (renter: Renter) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/manager/renters/${renter.id}/lease-history`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        setRentHistory(response.data.data.history);
+        setSelectedRenter(renter);
+        setShowHistoryModal(true);
+      }
+    } catch (error) {
+      console.error('Failed to fetch rent history:', error);
+      toast.error('Failed to load rent history');
+    }
+  };
+
   const handleUpdateStatus = async (renterId: number, newStatus: string) => {
     try {
       const token = localStorage.getItem('token');
@@ -343,18 +389,50 @@ const Renters = () => {
 
   const handleSubmitAddRenter = async () => {
     try {
+      // Validate required fields
+      if (!newRenter.name || !newRenter.email || !newRenter.phone) {
+        toast.error('Name, email, and phone are required');
+        return;
+      }
+
+      if (!newRenter.building_id || !newRenter.apartment_id) {
+        toast.error('Please select building and apartment');
+        return;
+      }
+
+      if (!newRenter.rentAmount || parseFloat(newRenter.rentAmount) <= 0) {
+        toast.error('Please enter a valid rent amount');
+        return;
+      }
+
+      if (!newRenter.leaseStart || !newRenter.leaseEnd) {
+        toast.error('Please select lease start and end dates');
+        return;
+      }
+
+      const requestData = {
+        name: newRenter.name,
+        email: newRenter.email,
+        phone: newRenter.phone,
+        nid_number: newRenter.nid_number || null,
+        emergency_contact: newRenter.emergency_contact || null,
+        occupation: newRenter.occupation || null,
+        building_id: parseInt(newRenter.building_id),
+        apartment_id: parseInt(newRenter.apartment_id),
+        rentAmount: parseFloat(newRenter.rentAmount),
+        leaseStart: newRenter.leaseStart,
+        leaseEnd: newRenter.leaseEnd
+      };
+
       const token = localStorage.getItem('token');
       const response = await axios.post(
         `${API_URL}/manager/renters`,
+        requestData,
         {
-          ...newRenter,
-          rentAmount: parseFloat(newRenter.rentAmount),
-          apartment_id: parseInt(newRenter.apartment_id),
-          building_id: parseInt(newRenter.building_id),
-          status: 'pending'
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { 
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
         }
       );
       
@@ -376,9 +454,10 @@ const Renters = () => {
         });
         fetchRenters();
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to add renter:', error);
-      toast.error('Failed to add renter');
+      const errorMessage = error.response?.data?.message || 'Failed to add renter';
+      toast.error(errorMessage);
     }
   };
 
@@ -409,6 +488,70 @@ const Renters = () => {
       toast.error('Failed to update renter');
     }
   };
+
+const handleSubmitRenewal = async () => {
+  if (!selectedRenter) return;
+  
+  try {
+    setProcessingRenewal(true);
+    const token = localStorage.getItem('token');
+    
+    const response = await axios.post(
+      `${API_URL}/manager/renters/${selectedRenter.id}/renew-lease`,
+      renewData,
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    );
+    
+    if (response.data.success) {
+      toast.success('Lease renewed successfully!');
+      setShowRenewModal(false);
+      
+      // IMPORTANT: Get the updated renter data from the response
+      const updatedRenterData = response.data.data.renter;
+      
+      // Update the renters list with the new data
+      setRenters(prevRenters => 
+        prevRenters.map(renter => 
+          renter.id === updatedRenterData.id 
+            ? {
+                ...renter,
+                rentAmount: parseFloat(updatedRenterData.agreed_rent),
+                leaseStart: updatedRenterData.lease_start,
+                leaseEnd: updatedRenterData.lease_end
+              }
+            : renter
+        )
+      );
+      
+      // Update the selected renter with the new data
+      setSelectedRenter({
+        ...selectedRenter,
+        rentAmount: parseFloat(updatedRenterData.agreed_rent),
+        leaseStart: updatedRenterData.lease_start,
+        leaseEnd: updatedRenterData.lease_end
+      });
+      
+      // Show success details
+      const details = response.data.data.renewalDetails;
+      if (details && details.newRent) {
+        toast.success(
+          `New rent: ${formatCurrency(details.newRent)} (${details.increasePercent}% increase)`,
+          { duration: 5000 }
+        );
+      }
+      
+      // Also refresh the full list to ensure everything is in sync
+      await fetchRenters();
+    }
+  } catch (error: any) {
+    console.error('Failed to renew lease:', error);
+    toast.error(error.response?.data?.message || 'Failed to renew lease');
+  } finally {
+    setProcessingRenewal(false);
+  }
+};
 
   const handleDeleteRenter = async (renterId: number) => {
     if (!window.confirm('Are you sure you want to delete this renter?')) return;
@@ -771,6 +914,25 @@ const Renters = () => {
                         >
                           <FaEye />
                         </button>
+                        
+                        {renter.status === 'active' && (
+                          <>
+                            <button 
+                              className="p-2 hover:bg-emerald-50 rounded-lg transition-colors text-emerald-600"
+                              onClick={() => handleRenewLease(renter)}
+                              title="Renew Lease"
+                            >
+                              <FaFileContract />
+                            </button>
+                            <button 
+                              className="p-2 hover:bg-blue-50 rounded-lg transition-colors text-blue-600"
+                              onClick={() => handleViewHistory(renter)}
+                              title="View Rent History"
+                            >
+                              <FaHistory />
+                            </button>
+                          </>
+                        )}
                         
                         {renter.status === 'pending' && (
                           <>
@@ -1376,6 +1538,232 @@ const Renters = () => {
                   Update Renter
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Renew Lease Modal */}
+{showRenewModal && selectedRenter && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div className="bg-white rounded-2xl max-w-md w-full max-h-[90vh] flex flex-col">
+      {/* Fixed Header */}
+      <div className="flex items-center justify-between p-6 border-b flex-shrink-0">
+        <h3 className="text-xl font-bold text-slate-900">Renew Lease</h3>
+        <button 
+          onClick={() => setShowRenewModal(false)}
+          className="p-2 hover:bg-slate-100 rounded-lg"
+        >
+          <FaTimes className="text-slate-600" />
+        </button>
+      </div>
+
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto p-6">
+        <div className="space-y-4">
+          {/* Current Lease Info */}
+          <div className="bg-slate-50 p-4 rounded-lg">
+            <h4 className="font-medium text-slate-700 mb-2">Current Lease</h4>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <p className="text-slate-500">Renter</p>
+                <p className="font-medium">{selectedRenter.name}</p>
+              </div>
+              <div>
+                <p className="text-slate-500">Apartment</p>
+                <p className="font-medium">{selectedRenter.apartment}</p>
+              </div>
+              <div>
+                <p className="text-slate-500">Current Rent</p>
+                <p className="font-medium">{formatCurrency(selectedRenter.rentAmount)}</p>
+              </div>
+              <div>
+                <p className="text-slate-500">Lease End</p>
+                <p className="font-medium">{new Date(selectedRenter.leaseEnd).toLocaleDateString()}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Renewal Form */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              New Lease End Date *
+            </label>
+            <input
+              type="date"
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+              value={renewData.newEndDate}
+              onChange={(e) => setRenewData({...renewData, newEndDate: e.target.value})}
+              min={selectedRenter.leaseEnd}
+              required
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Must be after {new Date(selectedRenter.leaseEnd).toLocaleDateString()}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Rent Increase (%)
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min="0"
+                max="15"
+                step="0.5"
+                className="flex-1"
+                value={renewData.rentIncreasePercent}
+                onChange={(e) => setRenewData({...renewData, rentIncreasePercent: parseFloat(e.target.value)})}
+              />
+              <span className="w-16 text-center font-medium bg-slate-100 px-2 py-1 rounded">
+                {renewData.rentIncreasePercent}%
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              New rent: {formatCurrency(selectedRenter.rentAmount * (1 + renewData.rentIncreasePercent/100))}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Increase Reason
+            </label>
+            <select
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-violet-500"
+              value={renewData.increaseReason}
+              onChange={(e) => setRenewData({...renewData, increaseReason: e.target.value})}
+            >
+              <option value="annual_renewal">Annual Renewal</option>
+              <option value="market_adjustment">Market Adjustment</option>
+              <option value="negotiated">Negotiated Increase</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          {/* Preview */}
+          <div className="bg-violet-50 p-4 rounded-lg">
+            <h4 className="font-medium text-violet-800 mb-2">Renewal Preview</h4>
+            <div className="space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-violet-600">Current Rent:</span>
+                <span className="font-medium">{formatCurrency(selectedRenter.rentAmount)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-violet-600">New Rent:</span>
+                <span className="font-bold text-violet-800">
+                  {formatCurrency(selectedRenter.rentAmount * (1 + renewData.rentIncreasePercent/100))}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-violet-600">Increase:</span>
+                <span className="font-medium text-emerald-600">
+                  +{formatCurrency(selectedRenter.rentAmount * renewData.rentIncreasePercent/100)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Fixed Footer with Buttons */}
+      <div className="flex justify-end space-x-3 p-6 border-t flex-shrink-0">
+        <button
+          onClick={() => setShowRenewModal(false)}
+          className="px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmitRenewal}
+          disabled={processingRenewal || !renewData.newEndDate}
+          className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2"
+        >
+          {processingRenewal ? (
+            <>
+              <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+              Processing...
+            </>
+          ) : (
+            'Renew Lease'
+          )}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
+      {/* Rent History Modal */}
+      {showHistoryModal && selectedRenter && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-slate-900">
+                  Rent History - {selectedRenter.name}
+                </h3>
+                <button 
+                  onClick={() => setShowHistoryModal(false)}
+                  className="p-2 hover:bg-slate-100 rounded-lg"
+                >
+                  <FaTimes className="text-slate-600" />
+                </button>
+              </div>
+
+              {rentHistory.length === 0 ? (
+                <div className="text-center py-8 text-slate-500">
+                  <FaHistory className="text-4xl mx-auto mb-3 text-slate-300" />
+                  <p>No rent history found</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {rentHistory.map((record, index) => (
+                    <div key={index} className="border rounded-lg p-4 hover:bg-slate-50">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="text-sm text-slate-500">Effective Date</p>
+                          <p className="font-medium">
+                            {new Date(record.effective_date).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
+                            })}
+                          </p>
+                        </div>
+                        <span className="px-3 py-1 bg-violet-100 text-violet-700 rounded-full text-sm capitalize">
+                          {record.change_reason?.replace('_', ' ')}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4 mt-3">
+                        <div>
+                          <p className="text-xs text-slate-500">Old Rent</p>
+                          <p className="text-lg font-bold text-slate-900">
+                            {formatCurrency(record.old_rent)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500">New Rent</p>
+                          <p className="text-lg font-bold text-emerald-600">
+                            {formatCurrency(record.new_rent)}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex justify-between items-center mt-2">
+                        <p className="text-xs text-slate-400">
+                          {new Date(record.created_at).toLocaleString()}
+                        </p>
+                        {record.changed_by_username && (
+                          <p className="text-xs text-slate-400">
+                            By: {record.changed_by_username}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
