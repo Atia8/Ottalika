@@ -5,6 +5,8 @@ import axios from 'axios';
 
 const router = Router();
 
+
+
 // Helper function with better error handling
 const dbQuery = async (text: string, params?: any[]) => {
   try {
@@ -33,6 +35,27 @@ const authorizeManager = (req: Request, res: Response, next: NextFunction) => {
 
 router.use(authenticate);
 router.use(authorizeManager);
+
+// ============ VALIDATION HELPER FUNCTIONS ============
+const validateEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
+
+const validatePhone = (phone: string): boolean => {
+  // Bangladeshi phone number format: 01XXXXXXXXX (11 digits starting with 01)
+  const phoneRegex = /^01[3-9]\d{8}$/;
+  return phoneRegex.test(phone);
+};
+
+const validateNID = (nid: string): boolean => {
+  // Bangladeshi NID: 10 or 17 digits
+  const nidRegex = /^\d{10}$|^\d{17}$/;
+  return nidRegex.test(nid);
+};
+// ============ END VALIDATION FUNCTIONS ============
+
+
 
 // ==================== MANAGER DASHBOARD ====================
 // ==================== MANAGER DASHBOARD ====================
@@ -328,6 +351,7 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 });
 
 // Helper function to format time ago
+// Helper function to format message time - SHOWS DATE FOR OLD MESSAGES
 function formatTimeAgo(date: Date | string): string {
   const now = new Date();
   const past = new Date(date);
@@ -336,12 +360,29 @@ function formatTimeAgo(date: Date | string): string {
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
 
+  // For messages within the last 24 hours - show relative time
   if (diffMins < 60) {
-    return diffMins <= 1 ? '1 minute ago' : `${diffMins} minutes ago`;
+    return diffMins <= 1 ? 'Just now' : `${diffMins} minutes ago`;
   } else if (diffHours < 24) {
     return diffHours === 1 ? '1 hour ago' : `${diffHours} hours ago`;
-  } else {
-    return diffDays === 1 ? '1 day ago' : `${diffDays} days ago`;
+  } 
+  // For messages within the last 7 days - show day of week
+  else if (diffDays < 7) {
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays === 2) return '2 days ago';
+    if (diffDays === 3) return '3 days ago';
+    if (diffDays === 4) return '4 days ago';
+    if (diffDays === 5) return '5 days ago';
+    if (diffDays === 6) return '6 days ago';
+  }
+  // For older messages - show actual date
+  else {
+    // Format: "Mar 15, 2024" or "15 Mar 2024" based on locale
+    return past.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric' 
+    });
   }
 }
 
@@ -2520,6 +2561,7 @@ router.get('/analytics/building-hierarchy', async (req: Request, res: Response) 
 // ==================== MESSAGE ENDPOINTS ====================
 
 // Get all conversations for manager
+// Get all conversations for manager - FIXED SORTING
 router.get('/messages', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).managerId; // Using the authenticate middleware
@@ -2539,7 +2581,7 @@ router.get('/messages', authenticate, async (req: Request, res: Response) => {
     
     const managerId = managerResult.rows[0].id;
 
-    // Get all conversations
+    // Get all conversations with proper sorting
     const conversations = await dbQuery(`
       WITH conversation_users AS (
         SELECT DISTINCT 
@@ -2548,7 +2590,8 @@ router.get('/messages', authenticate, async (req: Request, res: Response) => {
           'renter' as role,
           r.phone,
           a.apartment_number,
-          b.name as building_name
+          b.name as building_name,
+          r.status
         FROM renters r
         LEFT JOIN apartments a ON r.id = a.current_renter_id
         LEFT JOIN buildings b ON a.building_id = b.id
@@ -2590,7 +2633,12 @@ router.get('/messages', authenticate, async (req: Request, res: Response) => {
           'building', cu.building_name
         ) as with_user,
         COALESCE(lm.message, 'No messages yet') as last_message,
-        COALESCE(lm.created_at, NOW()) as last_message_time,
+        -- FIX: For users with no messages, set last_message_time to NULL (oldest possible)
+        -- For users with messages, use their actual last message time
+        CASE 
+          WHEN lm.created_at IS NOT NULL THEN lm.created_at
+          ELSE NULL
+        END as last_message_time,
         COALESCE((
           SELECT COUNT(*) 
           FROM messages m 
@@ -2598,10 +2646,19 @@ router.get('/messages', authenticate, async (req: Request, res: Response) => {
             m.receiver_id = 'manager_' || $1 AND
             m.sender_id = 'renter_' || cu.user_id AND
             m.is_read = false
-        ), 0) as unread_count
+        ), 0) as unread_count,
+        -- Add a flag to identify users with messages
+        CASE 
+          WHEN lm.created_at IS NOT NULL THEN true
+          ELSE false
+        END as has_messages
       FROM conversation_users cu
       LEFT JOIN last_messages lm ON lm.entity_id = cu.user_id
-      ORDER BY last_message_time DESC
+      ORDER BY 
+        -- First order by whether they have messages (false = no messages go to bottom)
+        has_messages DESC,
+        -- Then order by last_message_time (most recent first)
+        last_message_time DESC NULLS LAST
     `, [managerId]);
 
     res.status(200).json({
@@ -2621,7 +2678,87 @@ router.get('/messages', authenticate, async (req: Request, res: Response) => {
   }
 });
 
-// Get messages for a specific conversation
+
+
+// Send a message
+// In your POST /messages endpoint (around line 1450)
+router.post('/messages', authenticate, async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).managerId;
+    const { receiverId, message, role } = req.body;
+
+    if (!receiverId || !message || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields'
+      });
+    }
+
+    const managerResult = await dbQuery(`
+      SELECT m.id, m.name 
+      FROM managers m 
+      WHERE m.user_id = $1
+    `, [userId]);
+    
+    const managerId = managerResult.rows[0].id;
+    const managerName = managerResult.rows[0].name;
+
+    // Save to database
+    const result = await dbQuery(`
+      INSERT INTO messages (
+        sender_id,
+        receiver_id,
+        message,
+        created_at,
+        is_read
+      ) VALUES (
+        'manager_' || $1,
+        $2 || '_' || $3,
+        $4,
+        NOW(),
+        false
+      ) RETURNING *
+    `, [managerId, role, receiverId, message]);
+
+    // ADD THIS: Emit socket event for real-time update
+    const io = req.app.get('io');
+    io.to(`${role}_${receiverId}`).emit('new_message', {
+      ...result.rows[0],
+      is_own: false,
+      sender_name: managerName,
+      timestamp: new Date()
+    });
+
+    // Also emit unread count update
+    io.to(`${role}_${receiverId}`).emit('unread_count_update', {
+      senderId: managerId,
+      senderRole: 'manager',
+      unreadCount: 1 // You might want to calculate actual count
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        message: {
+          ...result.rows[0],
+          is_own: true,
+          sender_name: managerName || 'Manager',
+          status: 'sent'
+        }
+      }
+    });
+    
+  } catch (error: any) {
+    console.error('Error sending message:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send message',
+      error: error.message
+    });
+  }
+});
+
+// In your GET /messages/:userId endpoint (around line 1400)
 router.get('/messages/:userId', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).managerId;
@@ -2680,6 +2817,20 @@ router.get('/messages/:userId', authenticate, async (req: Request, res: Response
         is_read = false
     `, [managerId, role, otherUserId]);
 
+    // ADD THIS: Emit read receipt
+    const io = req.app.get('io');
+    io.to(`${role}_${otherUserId}`).emit('messages_read_receipt', {
+      readerId: managerId,
+      readerRole: 'manager',
+      timestamp: new Date()
+    });
+
+    // Also emit unread cleared for this conversation
+    io.to(`manager_${managerId}`).emit('unread_cleared', {
+      conversationId: otherUserId,
+      conversationRole: role
+    });
+
     res.status(200).json({
       success: true,
       data: {
@@ -2692,66 +2843,6 @@ router.get('/messages/:userId', authenticate, async (req: Request, res: Response
     res.status(500).json({
       success: false,
       message: 'Failed to fetch messages',
-      error: error.message
-    });
-  }
-});
-
-// Send a message
-router.post('/messages', authenticate, async (req: Request, res: Response) => {
-  try {
-    const userId = (req as any).managerId;
-    const { receiverId, message, role } = req.body;
-
-    if (!receiverId || !message || !role) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required fields'
-      });
-    }
-
-    const managerResult = await dbQuery(`
-      SELECT m.id, m.name 
-      FROM managers m 
-      WHERE m.user_id = $1
-    `, [userId]);
-    
-    const managerId = managerResult.rows[0].id;
-    const managerName = managerResult.rows[0].name;
-
-    const result = await dbQuery(`
-      INSERT INTO messages (
-        sender_id,
-        receiver_id,
-        message,
-        created_at,
-        is_read
-      ) VALUES (
-        'manager_' || $1,
-        $2 || '_' || $3,
-        $4,
-        NOW(),
-        false
-      ) RETURNING *
-    `, [managerId, role, receiverId, message]);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        message: {
-          ...result.rows[0],
-          is_own: true,
-          sender_name: managerName || 'Manager',
-          status: 'sent'
-        }
-      }
-    });
-    
-  } catch (error: any) {
-    console.error('Error sending message:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to send message',
       error: error.message
     });
   }
@@ -2796,6 +2887,7 @@ router.get('/buildings/:id/available-apartments', authenticate, authorizeManager
 });
 
 // POST /api/manager/renters - Add new renter
+// POST /api/manager/renters - Add new renter (WITH VALIDATION)
 router.post('/renters', authenticate, authorizeManager, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
@@ -2803,6 +2895,52 @@ router.post('/renters', authenticate, authorizeManager, async (req: Request, res
       name, email, phone, nid_number, emergency_contact, occupation,
       building_id, apartment_id, rentAmount, leaseStart, leaseEnd
     } = req.body;
+
+    console.log('📝 Adding new renter:', { name, email, apartment_id });
+
+    // ============ VALIDATION ============
+    
+    // Validate email
+    if (!validateEmail(email)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid email format. Please use a valid email address (e.g., name@example.com)' 
+      });
+    }
+
+    // Validate phone
+    if (!validatePhone(phone)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid Bangladeshi phone number. Must be 11 digits starting with 01 (e.g., 01712345678)' 
+      });
+    }
+
+    // Validate NID if provided
+    if (nid_number && !validateNID(nid_number)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid NID number. Must be 10 or 17 digits' 
+      });
+    }
+
+    // Validate required fields
+    if (!name || !email || !phone || !apartment_id || !rentAmount || !leaseStart || !leaseEnd) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields' 
+      });
+    }
+
+    // Validate lease dates
+    if (new Date(leaseStart) >= new Date(leaseEnd)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Lease end date must be after lease start date' 
+      });
+    }
+
+    // ============ END VALIDATION ============
 
     await client.query('BEGIN');
 
@@ -2822,7 +2960,7 @@ router.post('/renters', authenticate, authorizeManager, async (req: Request, res
       INSERT INTO users (username, password_hash, role, email, phone, "isActive")
       VALUES ($1, $2, 'renter', $3, $4, true)
       RETURNING id
-    `, [email.split('@')[0], 'temporary_hash', email, phone]);
+    `, [email.split('@')[0], '$2a$10$JTKgZtabSdN8WLhKOhvwveTntvCbsTVXz1xu7/E/ntpR.ZbZE1/Hi', email, phone]);
 
     // Create renter record
     const renterResult = await client.query(`
@@ -2842,11 +2980,20 @@ router.post('/renters', authenticate, authorizeManager, async (req: Request, res
 
     await client.query('COMMIT');
 
-    res.json({ success: true, data: { renterId: renterResult.rows[0].id } });
+    res.json({ 
+      success: true, 
+      data: { 
+        renterId: renterResult.rows[0].id,
+        message: 'Renter added successfully' 
+      } 
+    });
   } catch (error) {
     await client.query('ROLLBACK');
     console.error('Failed to add renter:', error);
-    res.status(500).json({ success: false, message: 'Failed to add renter' });
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to add renter. Please check server logs.' 
+    });
   } finally {
     client.release();
   }
@@ -2969,6 +3116,7 @@ router.post('/payments', authenticate, authorizeManager, async (req: Request, re
   }
 });
 // PUT /api/manager/renters/:id - Update renter (EDIT)
+// PUT /api/manager/renters/:id - Update renter (WITH VALIDATION)
 router.put('/renters/:id', authenticate, authorizeManager, async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
@@ -2979,6 +3127,40 @@ router.put('/renters/:id', authenticate, authorizeManager, async (req: Request, 
     } = req.body;
 
     console.log(`📝 Updating renter ${renterId} with data:`, req.body);
+
+    // ============ VALIDATION ============
+    
+    // Validate email if being updated
+    if (email && !validateEmail(email)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid email format. Please use a valid email address (e.g., name@example.com)' 
+      });
+    }
+
+    // Validate phone if being updated
+    if (phone && !validatePhone(phone)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid Bangladeshi phone number. Must be 11 digits starting with 01 (e.g., 01712345678)' 
+      });
+    }
+
+    // Validate NID if provided
+    if (nid_number && !validateNID(nid_number)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid NID number. Must be 10 or 17 digits' 
+      });
+    }
+
+    // Validate lease dates if both are provided
+    if (leaseStart && leaseEnd && new Date(leaseStart) >= new Date(leaseEnd)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Lease end date must be after lease start date' 
+      });
+    }
 
     await client.query('BEGIN');
 
