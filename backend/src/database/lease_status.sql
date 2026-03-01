@@ -2,6 +2,12 @@
 -- CREATE REALISTIC DEMO DATA WITH 2025-2026 LEASE DATES
 -- ============================================
 
+-- Safety check - uncomment to test without executing
+-- ROLLBACK;
+-- RETURN;
+
+BEGIN; -- Start transaction so we can rollback if something goes wrong
+
 -- First, clear existing payments for clean slate
 DELETE FROM payments;
 DELETE FROM rent_history;
@@ -20,12 +26,16 @@ UPDATE renters SET
     lease_end = '2026-12-31'  -- All end Dec 2026
 WHERE status = 'active';
 
--- Generate fresh payments for all active renters (this will create ALL months from lease_start to lease_end)
+-- Verify the updates
+SELECT id, name, lease_start, lease_end FROM renters WHERE status = 'active' ORDER BY id;
+
+-- Generate fresh payments for all active renters
 DO $$
 DECLARE
     r RECORD;
 BEGIN
-    FOR r IN SELECT id FROM renters WHERE status = 'active' LOOP
+    FOR r IN SELECT id FROM renters WHERE status = 'active' ORDER BY id LOOP
+        RAISE NOTICE 'Generating payments for renter %', r.id;
         PERFORM generate_renter_payments(r.id);
     END LOOP;
 END $$;
@@ -36,7 +46,8 @@ END $$;
 
 -- Mark ALL 2025 payments as PAID for everyone (historical)
 UPDATE payments 
-SET status = 'paid'::payment_status
+SET status = 'paid'::payment_status,
+    paid_at = month + INTERVAL '3 days' -- Simulate payment on 3rd of month
 WHERE EXTRACT(YEAR FROM month) = 2025;
 
 -- ============================================
@@ -45,8 +56,10 @@ WHERE EXTRACT(YEAR FROM month) = 2025;
 
 -- Jan 2026 - Everyone paid on time
 UPDATE payments 
-SET status = 'paid'::payment_status
-WHERE month = '2026-01-01' AND status = 'pending'::payment_status;
+SET status = 'paid'::payment_status,
+    paid_at = '2026-01-05'
+WHERE month = '2026-01-01'::DATE 
+  AND status = 'pending'::payment_status;
 
 -- Feb 2026 - Mixed payment behavior
 UPDATE payments 
@@ -54,11 +67,14 @@ SET status = CASE
     WHEN renter_id IN (1, 2, 6) THEN 'paid'::payment_status   -- John, Sarah, Demo paid on time
     WHEN renter_id IN (3, 4) THEN 'pending'::payment_status   -- Mike, Emily late (overdue)
     ELSE status
+END,
+paid_at = CASE 
+    WHEN renter_id IN (1, 2, 6) THEN '2026-02-05'::DATE
+    ELSE NULL
 END
-WHERE month = '2026-02-01';
+WHERE month = '2026-02-01'::DATE;
 
--- March 2026 - Current month (all pending)
--- (already pending from generation)
+-- March 2026 - Current month (all pending) - no changes needed
 
 -- ============================================
 -- ADD RENT INCREASE FROM 2025 TO 2026
@@ -68,7 +84,15 @@ WHERE month = '2026-02-01';
 UPDATE payments 
 SET amount = amount + 1000
 WHERE EXTRACT(YEAR FROM month) = 2026 
-  AND renter_id IN (1, 2, 6);  -- John, Sarah, Demo (2025 starters)
+  AND renter_id IN (1, 2, 6)  -- John, Sarah, Demo (2025 starters)
+  AND status != 'paid'; -- Only update unpaid ones to avoid confusion
+
+-- Also update paid ones for consistency
+UPDATE payments 
+SET amount = amount + 1000
+WHERE EXTRACT(YEAR FROM month) = 2026 
+  AND renter_id IN (1, 2, 6)
+  AND status = 'paid';
 
 -- Update the agreed_rent in renters table to reflect the increase
 UPDATE renters 
@@ -89,8 +113,12 @@ INSERT INTO rent_history (apartment_id, renter_id, old_rent, new_rent, change_re
 SELECT 
     r.apartment_id,
     r.id,
-    r.agreed_rent - 1000,  -- Old rent (2025)
-    r.agreed_rent,          -- New rent (2026)
+    CASE 
+        WHEN r.id = 1 THEN 12000
+        WHEN r.id = 2 THEN 8000
+        WHEN r.id = 6 THEN 8500
+    END,
+    r.agreed_rent,
     'annual_increase',
     '2026-01-01'
 FROM renters r
@@ -117,8 +145,27 @@ AND NOT EXISTS (
 );
 
 -- ============================================
--- SHOW FINAL STATUS REPORT
+-- VERIFICATION QUERIES
 -- ============================================
+
+-- Check get_renter_payment_status function for each renter
+SELECT '----- RENTER 1 (John - 2025 starter) -----';
+SELECT * FROM get_renter_payment_status(1) LIMIT 5;
+
+SELECT '----- RENTER 2 (Sarah - 2025 starter) -----';
+SELECT * FROM get_renter_payment_status(2) LIMIT 5;
+
+SELECT '----- RENTER 3 (Mike - 2026 starter) -----';
+SELECT * FROM get_renter_payment_status(3) LIMIT 5;
+
+SELECT '----- RENTER 4 (Emily - 2026 starter) -----';
+SELECT * FROM get_renter_payment_status(4) LIMIT 5;
+
+SELECT '----- RENTER 6 (Demo - 2025 starter) -----';
+SELECT * FROM get_renter_payment_status(6) LIMIT 5;
+
+SELECT '----- RENTER 7 (Robert - 2026 starter, current month) -----';
+SELECT * FROM get_renter_payment_status(7) LIMIT 5;
 
 -- Summary by renter
 SELECT 
@@ -129,7 +176,8 @@ SELECT
     COUNT(CASE WHEN EXTRACT(YEAR FROM p.month) = 2026 AND p.status = 'paid' THEN 1 END) as paid_2026,
     COUNT(CASE WHEN EXTRACT(YEAR FROM p.month) = 2026 AND p.status = 'pending' AND p.month < '2026-03-01' THEN 1 END) as overdue_2026,
     COUNT(CASE WHEN p.month = '2026-03-01' AND p.status = 'pending' THEN 1 END) as due_now,
-    COUNT(CASE WHEN p.month > '2026-03-01' AND p.status = 'pending' THEN 1 END) as upcoming
+    COUNT(CASE WHEN p.month > '2026-03-01' AND p.status = 'pending' THEN 1 END) as upcoming,
+    COUNT(*) as total_payments
 FROM renters r
 JOIN payments p ON r.id = p.renter_id
 WHERE r.status = 'active'
@@ -141,9 +189,29 @@ SELECT
     r.name,
     to_char(p.month, 'YYYY') as year,
     MIN(p.amount) as min_rent,
-    MAX(p.amount) as max_rent
+    MAX(p.amount) as max_rent,
+    COUNT(*) as payments_count
 FROM renters r
 JOIN payments p ON r.id = p.renter_id
 WHERE r.id IN (1, 2, 6)  -- 2025 starters
 GROUP BY r.name, to_char(p.month, 'YYYY')
 ORDER BY r.name, year;
+
+-- Check current month status for each renter
+SELECT 
+    r.id,
+    r.name,
+    p.month,
+    p.status,
+    p.amount,
+    CASE 
+        WHEN p.month = '2026-03-01' AND p.status = 'pending' THEN '✓ CAN PAY NOW'
+        ELSE 'Cannot pay'
+    END as can_pay_status
+FROM renters r
+JOIN payments p ON r.id = p.renter_id
+WHERE p.month = '2026-03-01'
+ORDER BY r.id;
+
+COMMIT; -- Uncomment to save changes
+--ROLLBACK; -- Uncomment to test without saving
