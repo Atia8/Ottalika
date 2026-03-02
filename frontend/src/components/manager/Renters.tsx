@@ -1,4 +1,4 @@
-// src/components/manager/Renters.tsx
+// src/components/manager/Renters.tsx (FIXED)
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
@@ -53,6 +53,7 @@ interface Renter {
   user_id?: number;
   created_at?: string;
   updated_at?: string;
+  overdue_payments?: number; // Add this field
 }
 
 interface Building {
@@ -151,34 +152,43 @@ const Renters = () => {
     fetchBuildings();
   }, []);
 
-  const fetchRenters = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/manager/renters`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+const fetchRenters = async () => {
+  try {
+    setLoading(true);
+    const token = localStorage.getItem('token');
+    const response = await axios.get(`${API_URL}/manager/renters`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (response.data.success) {
+      console.log('📊 Raw renter data:', response.data.data.renters); // Debug
       
-      if (response.data.success) {
-        const rentersData = (response.data.data.renters || []).map((renter: any) => ({
-          ...renter,
-          rentAmount: typeof renter.rentAmount === 'string' 
-            ? parseFloat(renter.rentAmount) 
-            : (renter.rentAmount || 0)
-        }));
-        
-        setRenters(rentersData);
-        calculateStats(rentersData);
-      } else {
-        toast.error('Failed to fetch renters');
-      }
-    } catch (error) {
-      console.error('Failed to fetch renters:', error);
-      toast.error('Error loading renters data');
-    } finally {
-      setLoading(false);
+      const rentersData = (response.data.data.renters || []).map((renter: any) => ({
+        ...renter,
+        rentAmount: typeof renter.rentAmount === 'string' 
+          ? parseFloat(renter.rentAmount) 
+          : (renter.rentAmount || 0),
+        overdue_payments: renter.overdue_payments || 0, // 👈 CRITICAL - maps the field
+        leaseStart: renter.leaseStart || '',
+        leaseEnd: renter.leaseEnd || ''
+      }));
+      
+      console.log('📊 Processed renters:', rentersData.map((r: any) => ({
+        name: r.name,
+        overdue: r.overdue_payments,
+        rentAmount: r.rentAmount
+      })));
+      
+      setRenters(rentersData);
+      calculateStats(rentersData);
     }
-  };
+  } catch (error) {
+    console.error('Failed to fetch renters:', error);
+    toast.error('Error loading renters data');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const fetchBuildings = async () => {
     try {
@@ -302,7 +312,17 @@ const Renters = () => {
     setShowApproveModal(true);
   };
 
+  // FIXED: Check for overdue payments before opening renew modal
   const handleRenewLease = (renter: Renter) => {
+    // Check if renter has overdue payments
+    if (renter.overdue_payments && renter.overdue_payments > 0) {
+      toast.error(
+        `Cannot renew lease: ${renter.name} has ${renter.overdue_payments} overdue payment(s). Please clear overdue payments first.`,
+        { duration: 6000, icon: '🔴' }
+      );
+      return;
+    }
+
     setSelectedRenter(renter);
     // Set default new end date to 1 year from current lease end
     const currentEnd = new Date(renter.leaseEnd);
@@ -489,69 +509,84 @@ const Renters = () => {
     }
   };
 
-const handleSubmitRenewal = async () => {
-  if (!selectedRenter) return;
-  
-  try {
-    setProcessingRenewal(true);
-    const token = localStorage.getItem('token');
+  // FIXED: Better error handling for renewal
+  const handleSubmitRenewal = async () => {
+    if (!selectedRenter) return;
     
-    const response = await axios.post(
-      `${API_URL}/manager/renters/${selectedRenter.id}/renew-lease`,
-      renewData,
-      {
-        headers: { Authorization: `Bearer ${token}` }
-      }
-    );
-    
-    if (response.data.success) {
-      toast.success('Lease renewed successfully!');
-      setShowRenewModal(false);
+    try {
+      setProcessingRenewal(true);
+      const token = localStorage.getItem('token');
       
-      // IMPORTANT: Get the updated renter data from the response
-      const updatedRenterData = response.data.data.renter;
-      
-      // Update the renters list with the new data
-      setRenters(prevRenters => 
-        prevRenters.map(renter => 
-          renter.id === updatedRenterData.id 
-            ? {
-                ...renter,
-                rentAmount: parseFloat(updatedRenterData.agreed_rent),
-                leaseStart: updatedRenterData.lease_start,
-                leaseEnd: updatedRenterData.lease_end
-              }
-            : renter
-        )
+      const response = await axios.post(
+        `${API_URL}/manager/renters/${selectedRenter.id}/renew-lease`,
+        renewData,
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
       );
       
-      // Update the selected renter with the new data
-      setSelectedRenter({
-        ...selectedRenter,
-        rentAmount: parseFloat(updatedRenterData.agreed_rent),
-        leaseStart: updatedRenterData.lease_start,
-        leaseEnd: updatedRenterData.lease_end
-      });
-      
-      // Show success details
-      const details = response.data.data.renewalDetails;
-      if (details && details.newRent) {
-        toast.success(
-          `New rent: ${formatCurrency(details.newRent)} (${details.increasePercent}% increase)`,
-          { duration: 5000 }
+      if (response.data.success) {
+        toast.success('Lease renewed successfully!');
+        setShowRenewModal(false);
+        
+        // IMPORTANT: Get the updated renter data from the response
+        const updatedRenterData = response.data.data.renter;
+        
+        // Update the renters list with the new data
+        setRenters(prevRenters => 
+          prevRenters.map(renter => 
+            renter.id === updatedRenterData.id 
+              ? {
+                  ...renter,
+                  rentAmount: parseFloat(updatedRenterData.agreed_rent),
+                  leaseStart: updatedRenterData.lease_start,
+                  leaseEnd: updatedRenterData.lease_end,
+                  overdue_payments: 0 // Reset overdue count after renewal
+                }
+              : renter
+          )
         );
+        
+        // Update the selected renter with the new data
+        setSelectedRenter({
+          ...selectedRenter,
+          rentAmount: parseFloat(updatedRenterData.agreed_rent),
+          leaseStart: updatedRenterData.lease_start,
+          leaseEnd: updatedRenterData.lease_end,
+          overdue_payments: 0
+        });
+        
+        // Show success details
+        const details = response.data.data.renewalDetails;
+        if (details && details.newRent) {
+          toast.success(
+            `New rent: ${formatCurrency(details.newRent)} (${details.increasePercent}% increase)`,
+            { duration: 5000 }
+          );
+        }
+        
+        // Also refresh the full list to ensure everything is in sync
+        await fetchRenters();
       }
+    } catch (error: any) {
+      console.error('Failed to renew lease:', error);
       
-      // Also refresh the full list to ensure everything is in sync
-      await fetchRenters();
+      // Show specific error message from backend
+      const errorMessage = error.response?.data?.message || 'Failed to renew lease';
+      
+      // If it's an overdue error, show a more prominent message
+      if (errorMessage.toLowerCase().includes('overdue')) {
+        toast.error(
+          `🔴 ${errorMessage}\nPlease clear all overdue payments before renewing.`,
+          { duration: 8000 }
+        );
+      } else {
+        toast.error(errorMessage, { duration: 6000 });
+      }
+    } finally {
+      setProcessingRenewal(false);
     }
-  } catch (error: any) {
-    console.error('Failed to renew lease:', error);
-    toast.error(error.response?.data?.message || 'Failed to renew lease');
-  } finally {
-    setProcessingRenewal(false);
-  }
-};
+  };
 
   const handleDeleteRenter = async (renterId: number) => {
     if (!window.confirm('Are you sure you want to delete this renter?')) return;
@@ -585,7 +620,8 @@ const handleSubmitRenewal = async () => {
       'Lease End': new Date(r.leaseEnd).toLocaleDateString(),
       'NID Number': r.nid_number || 'N/A',
       'Emergency Contact': r.emergency_contact || 'N/A',
-      'Occupation': r.occupation || 'N/A'
+      'Occupation': r.occupation || 'N/A',
+      'Overdue Payments': r.overdue_payments || 0
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -609,11 +645,12 @@ const handleSubmitRenewal = async () => {
       r.apartment,
       r.building,
       formatCurrency(r.rentAmount),
-      r.status
+      r.status,
+      r.overdue_payments ? `🔴 ${r.overdue_payments}` : '✓'
     ]);
 
     autoTable(doc, {
-      head: [['Name', 'Apt', 'Building', 'Monthly Rent', 'Status']],
+      head: [['Name', 'Apt', 'Building', 'Monthly Rent', 'Status', 'Overdue']],
       body: tableData,
       startY: 40,
       styles: { fontSize: 8 },
@@ -842,6 +879,12 @@ const handleSubmitRenewal = async () => {
                         <div>
                           <p className="font-semibold text-slate-900">{renter.name}</p>
                           <p className="text-sm text-slate-500">{renter.email}</p>
+                          {renter.overdue_payments ? renter.overdue_payments > 0 && (
+                            <span className="inline-flex items-center gap-1 mt-1 text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full">
+                              <FaExclamationTriangle className="text-xs" />
+                              {renter.overdue_payments} overdue
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                     </td>
@@ -918,9 +961,16 @@ const handleSubmitRenewal = async () => {
                         {renter.status === 'active' && (
                           <>
                             <button 
-                              className="p-2 hover:bg-emerald-50 rounded-lg transition-colors text-emerald-600"
-                              onClick={() => handleRenewLease(renter)}
-                              title="Renew Lease"
+                              className={`p-2 rounded-lg transition-colors ${
+                                renter.overdue_payments && renter.overdue_payments > 0
+                                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed opacity-50'
+                                  : 'hover:bg-emerald-50 text-emerald-600'
+                              }`}
+                              onClick={() => renter.overdue_payments === 0 && handleRenewLease(renter)}
+                              disabled={renter.overdue_payments ? renter.overdue_payments > 0 : false}
+                              title={renter.overdue_payments && renter.overdue_payments > 0 
+                                ? 'Cannot renew: Overdue payments exist' 
+                                : 'Renew Lease'}
                             >
                               <FaFileContract />
                             </button>
@@ -1768,6 +1818,7 @@ const handleSubmitRenewal = async () => {
           </div>
         </div>
       )}
+
     </div>
   );
 };

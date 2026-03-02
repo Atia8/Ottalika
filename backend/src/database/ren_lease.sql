@@ -1,7 +1,7 @@
 -- Drop the existing procedure
 DROP PROCEDURE IF EXISTS renew_lease(INTEGER, DATE, DECIMAL, VARCHAR, VARCHAR, TEXT, DATE, DATE, DECIMAL, DECIMAL);
 
--- Create the fixed version
+-- Create the fixed version with proper overdue check
 CREATE OR REPLACE PROCEDURE renew_lease(
     p_renter_id INTEGER,
     p_new_end_date DATE,
@@ -23,7 +23,7 @@ DECLARE
     v_apartment_id INTEGER;
     v_renter_name VARCHAR;
     v_new_rent DECIMAL;
-    v_overdue_payments INTEGER;
+    v_unpaid_months INTEGER;  -- Changed name to be more accurate
     v_month_counter DATE;
     v_payment_count INTEGER := 0;
 BEGIN
@@ -54,6 +54,19 @@ BEGIN
     IF p_new_end_date <= v_current_lease_end THEN
         p_status := 'ERROR';
         p_message := 'New lease end date must be after current lease end date';
+        RETURN;
+    END IF;
+    
+    -- FIXED: Check for ANY unpaid months (both 'pending' AND 'overdue')
+    SELECT COUNT(*) INTO v_unpaid_months
+    FROM payments p
+    WHERE p.renter_id = p_renter_id
+      AND p.status IN ('pending'::payment_status, 'overdue'::payment_status)
+      AND p.month < DATE_TRUNC('month', CURRENT_DATE);
+    
+    IF v_unpaid_months > 0 THEN
+        p_status := 'ERROR';
+        p_message := 'Cannot renew lease: Renter has ' || v_unpaid_months || ' unpaid month(s). Please clear all dues first.';
         RETURN;
     END IF;
     
@@ -89,16 +102,15 @@ BEGIN
         CURRENT_TIMESTAMP
     );
     
-    -- IMPORTANT FIX: Delete ONLY future payments beyond current lease end
+    -- Delete future payments
     DELETE FROM payments 
     WHERE renter_id = p_renter_id 
       AND month > DATE_TRUNC('month', v_current_lease_end);
     
-    -- Generate payments for new lease period
+    -- Generate new payments
     v_month_counter := DATE_TRUNC('month', v_current_lease_end + INTERVAL '1 day');
     
     WHILE v_month_counter <= DATE_TRUNC('month', p_new_end_date) LOOP
-        -- Check if payment already exists for this month (shouldn't, but just in case)
         IF NOT EXISTS (
             SELECT 1 FROM payments 
             WHERE renter_id = p_renter_id 
