@@ -21,6 +21,9 @@ interface ApartmentPayment {
   confirmation_status: string | null;
   verified_at: string | null;
   display_status: string;
+  // 👇 ADD THESE FIELDS
+  building_id?: number;
+  building_name?: string;
 }
 
 interface PaymentSummary {
@@ -31,12 +34,19 @@ interface PaymentSummary {
   overdue_count: number;
   total_expected: number;
   total_collected: number;
+  // 👇 ADD THIS
+  building_count?: number;
 }
 
 interface PaymentData {
   month: string;
   summary: PaymentSummary;
   apartments: ApartmentPayment[];
+  // 👇 ADD THIS
+  buildings?: {
+    count: number;
+    list: string[];
+  };
 }
 
 interface UseOwnerPaymentsReturn {
@@ -78,14 +88,16 @@ export const useOwnerPayments = (month: string): UseOwnerPaymentsReturn => {
           summary: {
             total_apartments: result.summary?.total_apartments || 0,
             verified_count: result.summary?.verified_count || 0,
-            pending_review_count: result.summary?.pending_verification_count || 0,
-            unpaid_count: result.summary?.pending_payment_count || 0,
+            pending_review_count: result.summary?.pending_review_count || 0,
+            unpaid_count: result.summary?.unpaid_count || 0,
             overdue_count: result.summary?.overdue_count || 0,
             total_expected: result.summary?.total_expected || 0,
-            total_collected: result.summary?.total_collected || 0
+            total_collected: result.summary?.total_collected || 0,
+            // 👇 ADD THIS
+            building_count: result.summary?.building_count || 0
           },
           apartments: result.apartments?.map((apt: any) => ({
-            id: apt.apartment_id,
+            id: apt.id,
             apartment_number: apt.apartment_number,
             floor: apt.floor,
             rent_amount: apt.rent_amount,
@@ -94,15 +106,24 @@ export const useOwnerPayments = (month: string): UseOwnerPaymentsReturn => {
             renter_email: apt.renter_email,
             renter_phone: apt.renter_phone,
             payment_id: apt.payment_id,
-            amount: apt.paid_amount,
+            amount: apt.amount,
             payment_status: apt.payment_status,
             paid_at: apt.paid_at,
             payment_method: apt.payment_method,
             transaction_id: apt.transaction_id,
             confirmation_status: apt.confirmation_status,
             verified_at: apt.verified_at,
-            display_status: apt.display_status
-          })) || []
+            display_status: apt.display_status || 
+              (apt.payment_status === 'paid' && apt.confirmation_status === 'verified' ? 'verified' :
+               apt.payment_status === 'paid' ? 'pending_verification' :
+               apt.payment_status === 'pending' ? 'pending' :
+               apt.payment_status === 'overdue' ? 'overdue' : 'no_payment'),
+            // 👇 ADD THESE
+            building_id: apt.building_id,
+            building_name: apt.building_name
+          })) || [],
+          // 👇 ADD THIS
+          buildings: result.buildings || { count: 0, list: [] }
         };
         
         setData(transformedData);
@@ -113,19 +134,20 @@ export const useOwnerPayments = (month: string): UseOwnerPaymentsReturn => {
       console.error('Error in useOwnerPayments:', err);
       setError(err instanceof Error ? err : new Error('Unknown error'));
       
-      // Check if we're in development mode using import.meta.env
+      // Fallback data for development
       if (import.meta.env.DEV) {
         console.log('Using fallback data for development');
         setData({
           month: month,
           summary: {
-            total_apartments: 2,
+            total_apartments: 3,
             verified_count: 1,
             pending_review_count: 1,
-            unpaid_count: 0,
+            unpaid_count: 1,
             overdue_count: 0,
-            total_expected: 10500,
-            total_collected: 5000
+            total_expected: 15500,
+            total_collected: 5000,
+            building_count: 2
           },
           apartments: [
             {
@@ -145,7 +167,9 @@ export const useOwnerPayments = (month: string): UseOwnerPaymentsReturn => {
               transaction_id: "TRX123",
               confirmation_status: "verified",
               verified_at: new Date().toISOString(),
-              display_status: "verified"
+              display_status: "verified",
+              building_id: 1,
+              building_name: "Green Valley"
             },
             {
               id: 2,
@@ -164,9 +188,36 @@ export const useOwnerPayments = (month: string): UseOwnerPaymentsReturn => {
               transaction_id: "CASH001",
               confirmation_status: "pending_review",
               verified_at: null,
-              display_status: "pending_verification"
+              display_status: "pending_verification",
+              building_id: 1,
+              building_name: "Green Valley"
+            },
+            {
+              id: 3,
+              apartment_number: "201",
+              floor: "2",
+              rent_amount: 5000,
+              renter_id: 3,
+              renter_name: "Mike Johnson",
+              renter_email: "mike@example.com",
+              renter_phone: "01755555555",
+              payment_id: null,
+              amount: null,
+              payment_status: null,
+              paid_at: null,
+              payment_method: null,
+              transaction_id: null,
+              confirmation_status: null,
+              verified_at: null,
+              display_status: "pending",
+              building_id: 2,
+              building_name: "Sky Tower"
             }
-          ]
+          ],
+          buildings: {
+            count: 2,
+            list: ["Green Valley", "Sky Tower"]
+          }
         });
       }
     } finally {

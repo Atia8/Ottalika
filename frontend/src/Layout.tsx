@@ -1,7 +1,7 @@
 // frontend/src/Layout.tsx
 import React from 'react';
 // Add to imports:
-import { FaClipboard, FaExclamationTriangle } from 'react-icons/fa';
+import { FaClipboard, FaExclamationTriangle,FaFileAlt } from 'react-icons/fa';
 import { useState } from 'react';
 import { useAuth } from './context/AuthContext';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
@@ -36,7 +36,9 @@ const Layout: React.FC = () => {
     { id: 'payments', name: 'Payments', icon: <FaCheckCircle />, path: '/renter/payments' },
     { id: 'complaints', name: 'Complaints', icon: <FaTools />, path: '/renter/complaints' },
     { id: 'messages', name: 'Messages', icon: <FaEnvelope />, path: '/renter/messages' },
+     { id: 'requests', name: 'requests', icon: < FaFileAlt/>, path: '/renter/requests' },
   ];
+
 
 const ownerNav = [
   { id: 'dashboard', name: 'Dashboard', icon: <FaHome />, path: '/owner' },

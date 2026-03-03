@@ -14,6 +14,7 @@ import authRoutes from './routes/auth.routes';
 import managerRoutes from './routes/manager.routes';
 import ownerRoutes from './routes/ownerRoutes';
 import renterRoutes from './routes/renterRoutes';
+const requestRoutes = require("./routes/requestRoutes");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -68,6 +69,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/manager', managerRoutes);
 app.use('/api/owner', ownerRoutes);
 app.use('/api/renter', renterRoutes);
+app.use("/api/requests", requestRoutes);
+
 
 // 404 handler
 app.use('*', (req, res) => {

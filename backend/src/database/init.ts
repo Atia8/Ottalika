@@ -5,7 +5,7 @@ import path from 'path';
 const setupDatabase = async () => {
   try {
     const sql = fs.readFileSync(
-      path.join(__dirname, 'setup.sql'),
+      path.join(__dirname, 'new_table.sql'),
       'utf8'
     );
     
