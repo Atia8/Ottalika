@@ -1,182 +1,301 @@
-// frontend/src/components/owner/OwnerDashboard.tsx
+import { useState } from "react";
 import { TrendingUp, TrendingDown, DollarSign, Users, AlertCircle } from "lucide-react";
-import { mockAnalytics, mockRenters, mockComplaints } from "../../lib/mockData";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from "recharts";
+
+import { useOwnerDashboard } from "../../hooks/useOwnerDashboard";
 
 export function OwnerDashboard() {
-  const occupiedApartments = mockRenters.filter(r => r.status === "approved").length;
-  const totalApartments = 10;
-  const occupancyRate = (occupiedApartments / totalApartments) * 100;
 
-  const pendingComplaints = mockComplaints.filter(c => c.status === "pending").length;
+  // Default year + month (Professional selector)
+  const currentDate = new Date();
+  const [year, setYear] = useState(currentDate.getFullYear().toString());
+  const [month, setMonth] = useState(
+    String(currentDate.getMonth() + 1).padStart(2, "0")
+  );
+
+  // Send to backend in YYYY-MM-DD format
+  const selectedMonth = `${year}-${month}-01`;
+  
+  console.log("🔍 Selected Month:", selectedMonth);
+
+  const { data, loading } = useOwnerDashboard(selectedMonth);
+  
+  // Log the actual data structure
+  console.log("🔍 Full data object:", data);
+  
+  // Map API response to expected property names
+  const total_income = data?.totalIncome || 0;
+  const total_expense = data?.totalExpenses || 0;
+  const occupied_units = data?.occupiedApartments || 0;
+  const total_units = data?.totalApartments || 0;
+
+  console.log("🔍 Mapped values:", {
+    total_income,
+    total_expense,
+    occupied_units,
+    total_units
+  });
+
+  // Safe calculations
+  const occupancyRate = total_units === 0 ? 0 : (occupied_units / total_units) * 100;
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-slate-600">Loading dashboard data...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-slate-900">Owner Dashboard</h1>
-        <p className="text-slate-600 mt-1">Overview of your building's performance</p>
+
+      {/* Header + Date Selector */}
+      <div className="flex justify-between items-center flex-wrap gap-4">
+
+        <div>
+          <h1 className="text-slate-900 text-2xl font-semibold">
+            Owner Dashboard
+          </h1>
+          <p className="text-slate-600 mt-1">
+            Overview of your building performance
+          </p>
+        </div>
+
+        {/* Professional Year + Month Selector */}
+        <div className="flex gap-3">
+
+          {/* Year Dropdown */}
+          <select
+            value={year}
+            onChange={(e) => setYear(e.target.value)}
+            className="border p-2 rounded-lg"
+          >
+            {[2024, 2025, 2026, 2027].map(y => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+
+          {/* Month Dropdown */}
+          <select
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="border p-2 rounded-lg"
+          >
+            {[
+              "01","02","03","04","05","06",
+              "07","08","09","10","11","12"
+            ].map(m => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+
+        </div>
+
       </div>
 
-      {/* Key Metrics */}
+      {/* Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200/60 hover:shadow-md transition-shadow">
+
+        {/* Income */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center gap-4">
             <div className="bg-emerald-100 p-3 rounded-xl">
-              <TrendingUp className="w-6 h-6 text-emerald-600" />
+              <TrendingUp className="w-6 h-6 text-emerald-600"/>
             </div>
+
             <div>
               <p className="text-slate-600">Total Income</p>
-              <p className="text-slate-900">৳{mockAnalytics.totalIncome.toLocaleString()}</p>
-              <p className="text-emerald-600">This month</p>
+              <p className="text-slate-900 text-xl">
+                ৳{total_income.toLocaleString()}
+              </p>
+              <p className="text-emerald-600 text-sm">This month</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200/60 hover:shadow-md transition-shadow">
+        {/* Expenses */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center gap-4">
             <div className="bg-rose-100 p-3 rounded-xl">
-              <TrendingDown className="w-6 h-6 text-rose-600" />
+              <TrendingDown className="w-6 h-6 text-rose-600"/>
             </div>
+
             <div>
               <p className="text-slate-600">Total Expenses</p>
-              <p className="text-slate-900">৳{mockAnalytics.totalExpenses.toLocaleString()}</p>
-              <p className="text-slate-600">This month</p>
+              <p className="text-slate-900 text-xl">
+                ৳{total_expense.toLocaleString()}
+              </p>
+              <p className="text-slate-600 text-sm">This month</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200/60 hover:shadow-md transition-shadow">
+        {/* Profit */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center gap-4">
             <div className="bg-indigo-100 p-3 rounded-xl">
-              <DollarSign className="w-6 h-6 text-indigo-600" />
+              <DollarSign className="w-6 h-6 text-indigo-600"/>
             </div>
+
             <div>
               <p className="text-slate-600">Net Profit</p>
-              <p className="text-slate-900">৳{mockAnalytics.totalProfit.toLocaleString()}</p>
-              <p className="text-indigo-600">This month</p>
+              <p className="text-slate-900 text-xl">
+                ৳{(total_income - total_expense).toLocaleString()}
+              </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200/60 hover:shadow-md transition-shadow">
+        {/* Occupancy */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border">
           <div className="flex items-center gap-4">
             <div className="bg-blue-100 p-3 rounded-xl">
-              <Users className="w-6 h-6 text-blue-600" />
+              <Users className="w-6 h-6 text-blue-600"/>
             </div>
+
             <div>
               <p className="text-slate-600">Occupancy Rate</p>
-              <p className="text-slate-900">{occupancyRate.toFixed(0)}%</p>
-              <p className="text-slate-600">{occupiedApartments}/{totalApartments} units</p>
+              <p className="text-slate-900 text-xl">
+                {occupancyRate.toFixed(0)}%
+              </p>
+
+              <p className="text-slate-600 text-sm">
+                {occupied_units}/{total_units} units
+              </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Income vs Expenses Chart */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200/60">
-        <h2 className="text-slate-900 mb-6">Income vs Expenses</h2>
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={mockAnalytics.monthlyIncome}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-            <XAxis dataKey="month" stroke="#64748b" />
-            <YAxis stroke="#64748b" />
-            <Tooltip 
-              contentStyle={{ 
-                backgroundColor: 'white', 
-                border: '1px solid #e2e8f0',
-                borderRadius: '0.5rem',
-                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
-              }} 
-            />
-            <Legend />
-            <Bar dataKey="income" fill="#10b981" name="Income" radius={[8, 8, 0, 0]} />
-            <Bar dataKey="expenses" fill="#ef4444" name="Expenses" radius={[8, 8, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      {/* Charts */}
+      <div className="grid lg:grid-cols-2 gap-6">
 
-      {/* Profit Trend */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200/60">
-        <h2 className="text-slate-900 mb-6">Profit Trend (6 Months)</h2>
-        <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={mockAnalytics.monthlyIncome}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-            <XAxis dataKey="month" stroke="#64748b" />
-            <YAxis stroke="#64748b" />
-            <Tooltip 
-              contentStyle={{ 
-                backgroundColor: 'white', 
-                border: '1px solid #e2e8f0',
-                borderRadius: '0.5rem',
-                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
-              }} 
-            />
-            <Legend />
-            <Line type="monotone" dataKey="profit" stroke="#6366f1" strokeWidth={3} name="Net Profit" dot={{ fill: '#6366f1', r: 4 }} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+        {/* Income vs Expense */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border">
+          <h2 className="mb-6 text-slate-900 font-semibold">
+            Income vs Expenses
+          </h2>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Alerts */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200/60">
-          <h2 className="text-slate-900 mb-4">Alerts & Notifications</h2>
-          <div className="space-y-3">
-            {mockAnalytics.pendingPayments > 0 && (
-              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
-                <div>
-                  <p className="text-slate-900">{mockAnalytics.pendingPayments} Pending Payments</p>
-                  <p className="text-slate-600">Some renters haven't paid this month's rent</p>
-                </div>
-              </div>
-            )}
-            {pendingComplaints > 0 && (
-              <div className="flex items-start gap-3 p-4 bg-rose-50 border border-rose-200 rounded-lg">
-                <AlertCircle className="w-5 h-5 text-rose-600 mt-0.5" />
-                <div>
-                  <p className="text-slate-900">{pendingComplaints} Unresolved Complaints</p>
-                  <p className="text-slate-600">Maintenance issues need attention</p>
-                </div>
-              </div>
-            )}
-            <div className="flex items-start gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
-              <TrendingUp className="w-5 h-5 text-emerald-600 mt-0.5" />
-              <div>
-                <p className="text-slate-900">High Occupancy Rate</p>
-                <p className="text-slate-600">{occupancyRate.toFixed(0)}% of units are occupied</p>
-              </div>
-            </div>
-          </div>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart
+              data={[
+                {
+                  name: selectedMonth,
+                  income: total_income,
+                  expense: total_expense
+                }
+              ]}
+            >
+              <CartesianGrid strokeDasharray="3 3"/>
+              <XAxis dataKey="name"/>
+              <YAxis/>
+              <Tooltip formatter={(value) => `৳${value.toLocaleString()}`}/>
+              <Legend/>
+              <Bar dataKey="income" name="Income" fill="#10b981"/>
+              <Bar dataKey="expense" name="Expense" fill="#ef4444"/>
+            </BarChart>
+          </ResponsiveContainer>
         </div>
 
-        {/* Quick Stats */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200/60">
-          <h2 className="text-slate-900 mb-4">Quick Statistics</h2>
-          <div className="space-y-4">
-            <div className="flex justify-between items-center p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-              <span className="text-slate-700">Total Renters</span>
-              <span className="text-slate-900">{occupiedApartments}</span>
-            </div>
-            <div className="flex justify-between items-center p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-              <span className="text-slate-700">Average Rent</span>
-              <span className="text-slate-900">
-                ৳{Math.round(mockRenters.reduce((sum, r) => sum + r.rentAmount, 0) / mockRenters.length).toLocaleString()}
-              </span>
-            </div>
-            <div className="flex justify-between items-center p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-              <span className="text-slate-700">Payment Collection Rate</span>
-              <span className="text-emerald-600">
-                {((occupiedApartments - mockAnalytics.pendingPayments) / occupiedApartments * 100).toFixed(0)}%
-              </span>
-            </div>
-            <div className="flex justify-between items-center p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors">
-              <span className="text-slate-700">Active Complaints</span>
-              <span className="text-amber-600">{pendingComplaints}</span>
+        {/* Profit Trend */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border">
+          <h2 className="mb-6 text-slate-900 font-semibold">
+            Profit Trend
+          </h2>
+
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart
+              data={[
+                {
+                  name: selectedMonth,
+                  profit: total_income - total_expense
+                }
+              ]}
+            >
+              <CartesianGrid strokeDasharray="3 3"/>
+              <XAxis dataKey="name"/>
+              <YAxis/>
+              <Tooltip formatter={(value) => `৳${value.toLocaleString()}`}/>
+              <Legend/>
+              <Line
+                type="monotone"
+                dataKey="profit"
+                stroke="#6366f1"
+                name="Net Profit"
+                strokeWidth={2}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+      </div>
+
+      {/* Alerts - You can add dynamic alerts based on data */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border">
+        <h2 className="text-slate-900 mb-4 font-semibold">
+          Alerts
+        </h2>
+
+        {data?.pendingPayments > 0 && (
+          <div className="flex gap-3 p-4 bg-amber-50 border rounded-lg mb-2">
+            <AlertCircle className="text-amber-600 w-5 h-5"/>
+            <div>
+              <p className="text-slate-900">
+                Pending Payments: ৳{data.pendingPayments.toLocaleString()}
+              </p>
+              <p className="text-slate-600 text-sm">
+                {data.pendingPayments} in pending payments
+              </p>
             </div>
           </div>
-        </div>
+        )}
+
+        {data?.pendingComplaints > 0 && (
+          <div className="flex gap-3 p-4 bg-red-50 border rounded-lg">
+            <AlertCircle className="text-red-600 w-5 h-5"/>
+            <div>
+              <p className="text-slate-900">
+                Pending Complaints: {data.pendingComplaints}
+              </p>
+              <p className="text-slate-600 text-sm">
+                {data.pendingComplaints} complaints need attention
+              </p>
+            </div>
+          </div>
+        )}
+
+        {(!data?.pendingPayments && !data?.pendingComplaints) && (
+          <div className="flex gap-3 p-4 bg-green-50 border rounded-lg">
+            <AlertCircle className="text-green-600 w-5 h-5"/>
+            <div>
+              <p className="text-slate-900">
+                All Good!
+              </p>
+              <p className="text-slate-600 text-sm">
+                No pending issues
+              </p>
+            </div>
+          </div>
+        )}
       </div>
+
     </div>
   );
 }

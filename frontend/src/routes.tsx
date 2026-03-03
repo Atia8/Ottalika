@@ -7,7 +7,7 @@ import { OwnerDashboard } from "./components/owner/OwnerDashboard";
 import { OwnerPayments } from "./components/owner/OwnerPayments";
 import { OwnerManagerStatus } from "./components/owner/OwnerManagerStatus";
 import { OwnerComplaints } from "./components/owner/OwnerComplaints";
-
+import { OwnerRequests } from "./components/owner/OwnerRequests";
 
 // Manager components
 import ManagerDashboard from "./components/manager/Dashboard";
@@ -25,6 +25,7 @@ import RenterPayments from './components/renter/RenterPayments';
 import RenterComplaints from './components/renter/RenterComplaints';
 import RenterProfile from './components/renter/RenterProfile';
 import RenterMessages from './components/renter/RenterMessages';
+import { RenterRequests } from "./components/renter/RenterRequests";
 
 import ProtectedRoute from "./components/manager/ProtectedRoute";
 
@@ -66,7 +67,11 @@ export const router = createBrowserRouter([
         path: "complaints",
         element: <OwnerComplaints />,
       },
-     
+      
+      {
+        path: "requests",
+        element: <OwnerRequests/>,
+      },
     ],
   },
   
@@ -146,6 +151,10 @@ export const router = createBrowserRouter([
       {
         path: "messages",
         element: <RenterMessages />,
+      },
+       {
+        path: "requests",
+        element: <RenterRequests/>,
       },
     ],
   },
