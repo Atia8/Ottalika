@@ -113,6 +113,15 @@ export const initializeSocket = (server: HttpServer) => {
       receiverRole: string;
       message: any;
     }) => {
+      const senderRole = userRole;
+
+   // ⭐ Communication Rules
+   if(senderRole === "renter" && data.receiverRole !== "manager"){
+      return;
+   }
+   if(senderRole === "owner" && data.receiverRole !== "manager"){
+      return;
+   }
       const { receiverId, receiverRole, message } = data;
       
       const senderRoom = actualRoomId;

@@ -75,7 +75,7 @@ const ManagerMessages = () => {
     isUserOnline,
     sendMessage: sendSocketMessage,
     markAsRead: markMessagesAsRead
-  } = useSocket(userId, 'manager');
+  } = useSocket(userId, 'owner');
 
   // Save messages to sessionStorage when component unmounts
   useEffect(() => {
@@ -258,7 +258,7 @@ const ManagerMessages = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/manager/messages`, {
+      const response = await axios.get(`${API_URL}/owner/messages/conversations`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       
@@ -299,7 +299,7 @@ const ManagerMessages = () => {
       
       const role = selectedConv.with_user.role;
       
-      const response = await axios.get(`${API_URL}/manager/messages/${conversationId}`, {
+      const response = await axios.get(`${API_URL}/owner/messages/conversations/${conversationId}?role=manager`, {
         params: { role },
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -350,10 +350,10 @@ const ManagerMessages = () => {
     try {
       // Save to database via HTTP only
       const token = localStorage.getItem('token');
-      const response = await axios.post(`${API_URL}/manager/messages`, {
+      const response = await axios.post(`${API_URL}/owner/messages`, {
         receiverId: selectedConversation.with_user.id,
         message: messageText,
-        role: selectedConversation.with_user.role
+        role: "manager"
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -448,10 +448,92 @@ const ManagerMessages = () => {
       );
     }
     
+    
+
     // Save last selected
     sessionStorage.setItem('last_selected_conversation', conversation.id.toString());
     setSelectedConversation(conversation);
   };
+
+
+const handleSearch = async (text: string) => {
+  setSearchTerm(text);
+
+  try {
+
+    const token = localStorage.getItem("token");
+
+    // ✅ If search is empty → reload conversations
+    if (!text.trim()) {
+      fetchConversations();
+      return;
+    }
+
+    const res = await axios.get(
+      `${API_URL}/owner/searchManager`,
+      {
+        params: { query: text },
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+
+    if (res.data.success) {
+
+      const managers = res.data.data || [];
+
+      /**
+       * ⭐ Convert search results into conversation-like objects
+       * This allows first-time chat initialization
+       */
+      const searchConversations = managers.map((m: any) => ({
+        id: m.id,
+        with_user: {
+          id: m.id,
+          name: m.name,
+          role: m.role || "manager"
+        },
+        last_message: "",
+        last_message_time: "",
+        unread_count: 0
+      }));
+
+      /**
+       * ⭐ Merge with existing conversations
+       * Prevents duplicates if manager already exists in chat list
+       */
+      setConversations(prev => {
+
+        const existingMap = new Map();
+
+        prev.forEach(c => {
+          if (c?.with_user) {
+            existingMap.set(
+              `${c.with_user.role}_${c.with_user.id}`,
+              c
+            );
+          }
+        });
+
+        searchConversations.forEach((c: any) => {
+          const key = `${c.with_user.role}_${c.with_user.id}`;
+
+          if (!existingMap.has(key)) {
+            existingMap.set(key, c);
+          }
+        });
+
+        return Array.from(existingMap.values());
+      });
+
+    }
+
+  } catch (err) {
+    console.error("Search failed:", err);
+    toast.error("Search failed");
+  }
+};
 
   // Filter conversations
   const filteredConversations = React.useMemo(() => {
@@ -494,7 +576,8 @@ const ManagerMessages = () => {
                 type="text"
                 placeholder="Search conversations..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => handleSearch(e.target.value)}
+                // onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
               />
             </div>

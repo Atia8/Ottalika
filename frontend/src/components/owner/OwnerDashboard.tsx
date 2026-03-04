@@ -37,19 +37,19 @@ export function OwnerDashboard() {
   
   // Map API response to expected property names
   const total_income = data?.totalIncome || 0;
-  const total_expense = data?.totalExpenses || 0;
-  const occupied_units = data?.occupiedApartments || 0;
-  const total_units = data?.totalApartments || 0;
+  const total_expense = data?.totalBills || 0;
+  // const vacancy = data?.vacancy || 0;
+  // const total_units = data?.totalApartments || 0;
 
   console.log("🔍 Mapped values:", {
     total_income,
     total_expense,
-    occupied_units,
-    total_units
+    // occupied_units,
+    // total_units
   });
 
   // Safe calculations
-  const occupancyRate = total_units === 0 ? 0 : (occupied_units / total_units) * 100;
+  //const occupancyRate = total_units === 0 ? 0 : (occupied_units / total_units) * 100;
 
   if (loading) {
     return (
@@ -125,7 +125,7 @@ export function OwnerDashboard() {
               <p className="text-slate-900 text-xl">
                 ৳{total_income.toLocaleString()}
               </p>
-              <p className="text-emerald-600 text-sm">This month</p>
+              {/* <p className="text-emerald-600 text-sm">This month</p> */}
             </div>
           </div>
         </div>
@@ -142,7 +142,7 @@ export function OwnerDashboard() {
               <p className="text-slate-900 text-xl">
                 ৳{total_expense.toLocaleString()}
               </p>
-              <p className="text-slate-600 text-sm">This month</p>
+              {/* <p className="text-slate-600 text-sm">This month</p> */}
             </div>
           </div>
         </div>
@@ -164,24 +164,7 @@ export function OwnerDashboard() {
         </div>
 
         {/* Occupancy */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border">
-          <div className="flex items-center gap-4">
-            <div className="bg-blue-100 p-3 rounded-xl">
-              <Users className="w-6 h-6 text-blue-600"/>
-            </div>
-
-            <div>
-              <p className="text-slate-600">Occupancy Rate</p>
-              <p className="text-slate-900 text-xl">
-                {occupancyRate.toFixed(0)}%
-              </p>
-
-              <p className="text-slate-600 text-sm">
-                {occupied_units}/{total_units} units
-              </p>
-            </div>
-          </div>
-        </div>
+        
       </div>
 
       {/* Charts */}
@@ -215,7 +198,7 @@ export function OwnerDashboard() {
         </div>
 
         {/* Profit Trend */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border">
+        {/* <div className="bg-white p-6 rounded-xl shadow-sm border">
           <h2 className="mb-6 text-slate-900 font-semibold">
             Profit Trend
           </h2>
@@ -243,12 +226,12 @@ export function OwnerDashboard() {
               />
             </LineChart>
           </ResponsiveContainer>
-        </div>
+        </div> */}
 
       </div>
 
       {/* Alerts - You can add dynamic alerts based on data */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border">
+      {/* <div className="bg-white p-6 rounded-xl shadow-sm border">
         <h2 className="text-slate-900 mb-4 font-semibold">
           Alerts
         </h2>
@@ -294,7 +277,7 @@ export function OwnerDashboard() {
             </div>
           </div>
         )}
-      </div>
+      </div> */}
 
     </div>
   );

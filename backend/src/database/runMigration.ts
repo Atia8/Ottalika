@@ -8,7 +8,7 @@ const runMigration = async () => {
       __dirname,
       'migrations',
       // '002_get_owner_complaints_function.sql',
-      'owner_req.sql'
+      'fn_calculate_bill_status.sql'
     );
 
     const sql = fs.readFileSync(filePath, 'utf8');

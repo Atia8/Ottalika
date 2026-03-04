@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import { getOwnerComplaints } from '../controllers/complaintController';
-import { authenticate, authorizeOwner } from '../middleware/auth.middleware';
+import { getOwnerComplaints } from '../../controllers/complaintController';
+import { authenticate, authorizeOwner } from '../../middleware/auth.middleware';
 
 const router = Router();
 

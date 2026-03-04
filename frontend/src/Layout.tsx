@@ -46,6 +46,7 @@ const ownerNav = [
   { id: 'requests', name: 'Requests', icon: <FaClipboard />, path: '/owner/requests' },
   { id: 'manager-status', name: 'Manager Status', icon: <FaUsers />, path: '/owner/manager-status' },
   { id: 'complaints', name: 'Complaints', icon: <FaExclamationTriangle />, path: '/owner/complaints' },
+   { id: 'messages', name: 'Messages', icon: <FaEnvelope />, path: '/owner/messages' },
 ];
 
 

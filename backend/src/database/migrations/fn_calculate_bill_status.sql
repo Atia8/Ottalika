@@ -6,7 +6,7 @@ RETURNS VARCHAR AS $$
 BEGIN
     IF p_paid_date IS NOT NULL THEN
         IF p_paid_date > p_due_date THEN
-            RETURN 'late';
+            RETURN 'overdue';
         ELSE
             RETURN 'paid';
         END IF;
@@ -55,7 +55,7 @@ SELECT
     ) AS period,
     SUM(amount) AS total_expense
 FROM bills
-WHERE status IN ('paid', 'late')
+WHERE status IN ('paid', 'overdue')
 GROUP BY ROLLUP (DATE_TRUNC('month', due_date))
 ORDER BY period;
 

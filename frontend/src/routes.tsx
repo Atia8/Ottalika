@@ -8,6 +8,7 @@ import { OwnerPayments } from "./components/owner/OwnerPayments";
 import { OwnerManagerStatus } from "./components/owner/OwnerManagerStatus";
 import { OwnerComplaints } from "./components/owner/OwnerComplaints";
 import { OwnerRequests } from "./components/owner/OwnerRequests";
+import OwnerMessages from "./components/owner/OwnerMessages";
 
 // Manager components
 import ManagerDashboard from "./components/manager/Dashboard";
@@ -71,6 +72,10 @@ export const router = createBrowserRouter([
       {
         path: "requests",
         element: <OwnerRequests/>,
+      },
+      {
+        path: "messages",
+        element: <OwnerMessages />,
       },
     ],
   },

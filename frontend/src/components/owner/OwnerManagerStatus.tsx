@@ -1,417 +1,241 @@
-// frontend/src/pages/owner/OwnerManagerStatus.tsx
-import { CheckCircle, XCircle, Clock, AlertTriangle, Calendar, FileText, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+// frontend/src/pages/owner/OwnerBillsStatus.tsx
+
+import { useEffect, useState, useCallback } from "react";
+import {
+  CheckCircle2,
+  AlertCircle,
+  Clock3,
+  CalendarClock,
+  RefreshCw,
+  ChevronDown,
+  ReceiptText,
+  TrendingUp,
+  BadgeDollarSign,
+  Calendar,
+} from "lucide-react";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type BillStatus = "paid" | "overdue" | "pending" | "upcoming";
+type FilterStatus = BillStatus | "all";
 
 interface Bill {
   id: number;
-  bill_source: 'utility' | 'manager' | 'expense';
-  bill_type: string;
   title: string;
-  building_name: string;
   amount: number;
   due_date: string;
-  status: 'upcoming' | 'pending' | 'paid' | 'overdue';
   paid_date: string | null;
-  paid_amount?: number;
-  provider?: string;
-  account_number?: string;
-  month?: string;
-  consumption?: string;
-  description?: string;
+  description: string | null;
+  status: BillStatus;
+  manager_name: string;
 }
 
-interface Complaint {
-  id: number;
-  title: string;
-  description: string;
-  category: string;
-  priority: string;
-  status: "pending" | "in-progress" | "resolved";
-  apartment: string;
-  renterName: string;
-  createdAt: string;
-  resolvedAt: string | null;
+interface StatusSummaryItem {
+  count: number;
+  total_amount: number;
 }
 
-interface Payment {
-  id: number;
-  apartment_number: string;
-  renter_name: string;
-  payment_status: string;
-  confirmation_status: string;
+interface Summary {
+  paid: StatusSummaryItem;
+  overdue: StatusSummaryItem;
+  pending: StatusSummaryItem;
+  upcoming: StatusSummaryItem;
+  total: StatusSummaryItem;
 }
 
-interface MonthlySummary {
-  month: string;
-  totalBills: number;
-  paidBills: number;
-  unpaidBills: number;
-  totalAmount: number;
-  paidAmount: number;
-  unpaidAmount: number;
-  bills: Bill[];
+interface MonthOption {
+  month_key: string;   // "2025-12"
+  month_label: string; // "Dec 2025"
 }
+
+// ─── Status Configuration ──────────────────────────────────────────────────────
+
+const STATUS_CONFIG: Record<
+  FilterStatus,
+  { 
+    label: string; 
+    color: string; 
+    bg: string; 
+    border: string; 
+    icon: React.ReactNode; 
+    pill: string;
+  }
+> = {
+  all: {
+    label: "All Bills",
+    color: "text-gray-700",
+    bg: "bg-gray-50",
+    border: "border-gray-200",
+    icon: <ReceiptText className="w-5 h-5" />,
+    pill: "bg-gray-100 text-gray-700",
+  },
+  paid: {
+    label: "Paid",
+    color: "text-green-700",
+    bg: "bg-green-50",
+    border: "border-green-200",
+    icon: <CheckCircle2 className="w-5 h-5" />,
+    pill: "bg-green-100 text-green-700",
+  },
+  overdue: {
+    label: "Overdue",
+    color: "text-red-700",
+    bg: "bg-red-50",
+    border: "border-red-200",
+    icon: <AlertCircle className="w-5 h-5" />,
+    pill: "bg-red-100 text-red-700",
+  },
+  pending: {
+    label: "Pending",
+    color: "text-orange-700",
+    bg: "bg-orange-50",
+    border: "border-orange-200",
+    icon: <Clock3 className="w-5 h-5" />,
+    pill: "bg-orange-100 text-orange-700",
+  },
+  upcoming: {
+    label: "Upcoming",
+    color: "text-blue-700",
+    bg: "bg-blue-50",
+    border: "border-blue-200",
+    icon: <CalendarClock className="w-5 h-5" />,
+    pill: "bg-blue-100 text-blue-700",
+  },
+};
+
+// ─── Main Component ────────────────────────────────────────────────────────────
 
 export function OwnerManagerStatus() {
-  const [currentTab, setCurrentTab] = useState<"pending" | "upcoming" | "summary">("pending");
   const [bills, setBills] = useState<Bill[]>([]);
-  const [utilityBills, setUtilityBills] = useState<Bill[]>([]);
-  const [managerBills, setManagerBills] = useState<Bill[]>([]);
-  const [ownerExpenses, setOwnerExpenses] = useState<Bill[]>([]);
-  const [complaints, setComplaints] = useState<Complaint[]>([]);
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [monthlySummaries, setMonthlySummaries] = useState<MonthlySummary[]>([]);
-  const [selectedMonth, setSelectedMonth] = useState<string>("");
+  const [summary, setSummary] = useState<Summary>({
+    paid: { count: 0, total_amount: 0 },
+    overdue: { count: 0, total_amount: 0 },
+    pending: { count: 0, total_amount: 0 },
+    upcoming: { count: 0, total_amount: 0 },
+    total: { count: 0, total_amount: 0 },
+  });
+  const [availableMonths, setAvailableMonths] = useState<MonthOption[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<string>("all");
+  const [selectedStatus, setSelectedStatus] = useState<FilterStatus>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const fetchData = async () => {
+  // ─── Fetch Data ────────────────────────────────────────────────────────────────
+
+  const fetchBills = useCallback(async () => {
     try {
       setRefreshing(true);
       setError(null);
-      
+
       const token = localStorage.getItem('token');
+      const params = new URLSearchParams();
       
-      // Fetch all bills from unified endpoint
-      const billsResponse = await fetch('http://localhost:5000/api/owner/all-bills', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (!billsResponse.ok) {
-        throw new Error(`HTTP error! status: ${billsResponse.status}`);
-      }
-      
-      const billsResult = await billsResponse.json();
-      
-      if (billsResult.success) {
-        // TRUST THE DATABASE - use the status as is from the backend
-        const billsData = billsResult.data.bills;
-        
-        // Filter bills by type
-        const utility = billsData.filter((b: Bill) => b.bill_source === 'utility');
-        const manager = billsData.filter((b: Bill) => b.bill_source === 'manager');
-        const expenses = billsData.filter((b: Bill) => b.bill_source === 'expense');
-        
-        setBills(billsData);
-        setUtilityBills(utility);
-        setManagerBills(manager);
-        setOwnerExpenses(expenses);
-        
-        // Generate monthly summaries from ACTUAL data
-        generateMonthlySummaries(billsData);
+      if (selectedMonth !== "all") params.append('month', selectedMonth);
+      if (selectedStatus !== "all") params.append('status', selectedStatus);
+
+      const response = await fetch(
+        `http://localhost:5000/api/owner/bills?${params}`, 
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+      const result = await response.json();
+
+      if (result.success) {
+        setBills(result.data.bills);
+        setSummary(result.data.summary);
+        setAvailableMonths(result.data.available_months);
       } else {
-        throw new Error(billsResult.message || 'Failed to fetch bills');
+        throw new Error(result.message || 'Failed to fetch bills');
       }
-      
-      // Fetch complaints
-      const complaintsResponse = await fetch('http://localhost:5000/api/owner/complaints', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (complaintsResponse.ok) {
-        const complaintsResult = await complaintsResponse.json();
-        if (complaintsResult.success) {
-          setComplaints(complaintsResult.data || []);
-        }
-      }
-      
-      // Fetch payments
-      const paymentsResponse = await fetch('http://localhost:5000/api/owner/payments?month=2025-01-01', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (paymentsResponse.ok) {
-        const paymentsResult = await paymentsResponse.json();
-        if (paymentsResult.success) {
-          setPayments(paymentsResult.apartments || []);
-        }
-      }
-      
+
     } catch (err: any) {
-      console.error('Error fetching data:', err);
-      setError(err.message || 'Failed to load data');
-      
-      // Set mock data as fallback - with REALISTIC data
-      const mockBills: Bill[] = [
-        {
-          id: 1,
-          bill_source: 'utility',
-          bill_type: 'Electricity',
-          title: 'Electricity Bill',
-          building_name: 'Main Building',
-          amount: 15000,
-          due_date: '2025-12-05',
-          status: 'paid',
-          paid_date: '2025-12-01',
-          provider: 'National Grid'
-        },
-        {
-          id: 2,
-          bill_source: 'utility',
-          bill_type: 'Water',
-          title: 'Water Bill',
-          building_name: 'Main Building',
-          amount: 6000,
-          due_date: '2025-12-07',
-          status: 'paid',
-          paid_date: '2025-12-05',
-          provider: 'WASA'
-        },
-        {
-          id: 3,
-          bill_source: 'utility',
-          bill_type: 'Gas',
-          title: 'Gas Bill',
-          building_name: 'Main Building',
-          amount: 4000,
-          due_date: '2025-11-30',
-          status: 'overdue',
-          paid_date: null,
-          provider: 'Titas Gas'
-        },
-        {
-          id: 4,
-          bill_source: 'manager',
-          bill_type: 'Manager Bill',
-          title: 'Maintenance Fee',
-          building_name: 'All Buildings',
-          amount: 10000,
-          due_date: '2025-12-10',
-          status: 'paid',
-          paid_date: '2025-12-08'
-        },
-        {
-          id: 5,
-          bill_source: 'expense',
-          bill_type: 'property_tax',
-          title: 'Property Tax',
-          building_name: 'Owner Expense',
-          amount: 50000,
-          due_date: '2025-01-15',
-          status: 'paid',
-          paid_date: '2025-01-15'
-        },
-        {
-          id: 6,
-          bill_source: 'utility',
-          bill_type: 'Building Maintenance',
-          title: 'Building Maintenance',
-          building_name: 'Main Building',
-          amount: 2000,
-          due_date: '2025-02-10',
-          status: 'upcoming',
-          paid_date: null,
-          provider: 'Building Management'
-        },
-        {
-          id: 7,
-          bill_source: 'utility',
-          bill_type: 'Internet',
-          title: 'Internet Bill',
-          building_name: 'Main Building',
-          amount: 3000,
-          due_date: '2026-01-05',
-          status: 'upcoming',
-          paid_date: null,
-          provider: 'Bdcom Online'
-        },
-        {
-          id: 8,
-          bill_source: 'utility',
-          bill_type: 'Security',
-          title: 'Security Bill',
-          building_name: 'All Buildings',
-          amount: 8000,
-          due_date: '2025-12-15',
-          status: 'paid',
-          paid_date: '2025-12-12',
-          provider: 'SecureGuard Ltd.'
-        }
-      ];
-      
-      setBills(mockBills);
-      setUtilityBills(mockBills.filter(b => b.bill_source === 'utility'));
-      setManagerBills(mockBills.filter(b => b.bill_source === 'manager'));
-      setOwnerExpenses(mockBills.filter(b => b.bill_source === 'expense'));
-      
-      // Generate summaries from mock data
-      generateMonthlySummaries(mockBills);
-      
-      setComplaints([
-        {
-          id: 1,
-          title: "Leaking Faucet",
-          description: "Kitchen faucet is leaking",
-          category: "plumbing",
-          priority: "medium",
-          status: "in-progress",
-          apartment: "101",
-          renterName: "John Doe",
-          createdAt: new Date().toISOString(),
-          resolvedAt: null
-        }
-      ]);
-      
-      setPayments([
-        {
-          id: 1,
-          apartment_number: "101",
-          renter_name: "John Doe",
-          payment_status: "paid",
-          confirmation_status: "verified"
-        }
-      ]);
+      console.error('Error fetching bills:', err);
+      setError(err.message || 'Failed to load bills');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [selectedMonth, selectedStatus]);
 
-  // Generate monthly summaries from actual bill data
-  // Fix the generateMonthlySummaries function
-const generateMonthlySummaries = (billsData: Bill[]) => {
-  // Group bills by month (using due_date)
-  const billsByMonth = billsData.reduce((acc: Record<string, Bill[]>, bill) => {
-    const date = new Date(bill.due_date);
-    const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    const monthDisplay = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    
-    if (!acc[monthKey]) {
-      acc[monthKey] = [];
-    }
-    acc[monthKey].push(bill);
-    return acc;
-  }, {});
-
-  // Create summary for each month
-  const summaries: MonthlySummary[] = Object.entries(billsByMonth).map(([monthKey, monthBills]) => {
-    const paidBills = monthBills.filter(b => b.status === 'paid');
-    const unpaidBills = monthBills.filter(b => b.status !== 'paid');
-    
-    // FIX: Ensure amounts are treated as numbers, not strings
-    const totalAmount = monthBills.reduce((sum, b) => {
-      const amount = typeof b.amount === 'string' ? parseFloat(b.amount) : b.amount;
-      return sum + (isNaN(amount) ? 0 : amount);
-    }, 0);
-    
-    const paidAmount = paidBills.reduce((sum, b) => {
-      const amount = typeof b.amount === 'string' ? parseFloat(b.amount) : b.amount;
-      return sum + (isNaN(amount) ? 0 : amount);
-    }, 0);
-    
-    const unpaidAmount = unpaidBills.reduce((sum, b) => {
-      const amount = typeof b.amount === 'string' ? parseFloat(b.amount) : b.amount;
-      return sum + (isNaN(amount) ? 0 : amount);
-    }, 0);
-    
-    // Get display month from first bill
-    const displayMonth = monthBills.length > 0 
-      ? new Date(monthBills[0].due_date).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-      : monthKey;
-
-    return {
-      month: displayMonth,
-      monthKey,
-      totalBills: monthBills.length,
-      paidBills: paidBills.length,
-      unpaidBills: unpaidBills.length,
-      totalAmount,
-      paidAmount,
-      unpaidAmount,
-      bills: monthBills.sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
-    };
-  });
-
-  // Sort by date (newest first)
-  summaries.sort((a, b) => {
-    const dateA = new Date(a.bills[0]?.due_date || 0);
-    const dateB = new Date(b.bills[0]?.due_date || 0);
-    return dateB.getTime() - dateA.getTime();
-  });
-
-  setMonthlySummaries(summaries);
-  
-  // Set default selected month to the most recent
-  if (summaries.length > 0 && !selectedMonth) {
-    setSelectedMonth(summaries[0].month);
-  }
-};
   useEffect(() => {
     setLoading(true);
-    fetchData();
-  }, []);
+    fetchBills();
+  }, [fetchBills]);
 
-  // Get current selected month's data
-  const currentMonthData = monthlySummaries.find(s => s.month === selectedMonth) || monthlySummaries[0];
+  // ─── Handlers ───────────────────────────────────────────────────────────────────
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-violet-600"></div>
-    </div>
-  );
-  
-  if (error) return (
-    <div className="p-8 text-center">
-      <div className="bg-red-50 border border-red-200 rounded-lg p-6">
-        <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-3" />
-        <p className="text-red-600 font-medium">Error: {error}</p>
-        <button
-          onClick={fetchData}
-          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-        >
-          Retry
-        </button>
+  const handleMonthChange = (month: string) => {
+    setSelectedMonth(month);
+  };
+
+  const handleStatusChange = (status: FilterStatus) => {
+    setSelectedStatus(status);
+  };
+
+  // ─── Helper Functions ───────────────────────────────────────────────────────────
+
+  const formatCurrency = (amount: number) => {
+    return `৳${amount.toLocaleString('en-BD', { 
+      minimumFractionDigits: 0, 
+      maximumFractionDigits: 0 
+    })}`;
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  // ─── Render Loading/Error States ────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-violet-600"></div>
       </div>
-    </div>
-  );
+    );
+  }
 
-  // Calculate statistics - USE DATABASE STATUS
-  const totalBills = bills.length;
-  const paidBills = bills.filter(b => b.status === "paid").length;
-  
-  // Use the status from database
-  const upcomingBills = bills.filter(b => b.status === "upcoming");
-  const pendingBills = bills.filter(b => b.status === "pending");
-  const overdueBills = bills.filter(b => b.status === "overdue");
+  if (error) {
+    return (
+      <div className="p-8 text-center">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
+          <p className="text-red-600 font-medium">Error: {error}</p>
+          <button
+            onClick={fetchBills}
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-  // Complaints status
-  const totalComplaints = complaints.length;
-  const resolvedComplaints = complaints.filter(c => c.status === "resolved").length;
-  const pendingComplaints = complaints.filter(c => c.status === "pending");
-  const inProgressComplaints = complaints.filter(c => c.status === "in-progress");
-
-  // Payment verification
-  const verifiedPayments = payments.filter(p => 
-    p.confirmation_status === 'verified' || p.payment_status === 'paid'
-  ).length;
-  const totalRenters = payments.length;
-
-  // Performance scores
-  const billScore = totalBills > 0 ? (paidBills / totalBills) * 100 : 100;
-  const complaintScore = totalComplaints > 0 ? (resolvedComplaints / totalComplaints) * 100 : 100;
-  const paymentScore = totalRenters > 0 ? (verifiedPayments / totalRenters) * 100 : 100;
-  const overallScore = Math.round((billScore + complaintScore + paymentScore) / 3);
+  // ─── Main Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">
-      {/* Header with refresh button */}
+      {/* Header */}
       <div className="flex justify-between items-start">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Manager Performance</h1>
-          <p className="text-gray-600 mt-1">Monitor manager's task completion and building operations</p>
+          <h1 className="text-2xl font-bold text-gray-900">Bills Management</h1>
+          <p className="text-gray-600 mt-1">Track and monitor all building expenses</p>
         </div>
         <button
-          onClick={fetchData}
+          onClick={fetchBills}
           disabled={refreshing}
           className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors flex items-center gap-2 disabled:opacity-50"
         >
@@ -420,490 +244,192 @@ const generateMonthlySummaries = (billsData: Bill[]) => {
         </button>
       </div>
 
-      {/* Overall Performance */}
-      <div className="bg-gradient-to-r from-violet-500 to-violet-600 p-6 rounded-xl text-white">
-        <div className="flex justify-between items-center">
-          <div>
-            <p className="text-violet-100">Overall Performance Score</p>
-            <p className="text-white mt-2 text-4xl font-bold">{overallScore}%</p>
+      {/* Filters */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="flex flex-col sm:flex-row gap-4">
+          {/* Month Filter */}
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Filter by Month
+            </label>
+            <div className="relative">
+              <select
+                value={selectedMonth}
+                onChange={(e) => handleMonthChange(e.target.value)}
+                className="w-full pl-3 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:border-transparent appearance-none bg-white"
+              >
+                <option value="all">All Months</option>
+                {availableMonths.map((month) => (
+                  <option key={month.month_key} value={month.month_key}>
+                    {month.month_label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
           </div>
-          <div className="text-right">
-            <div className="bg-white/20 rounded-full p-4">
-              <CheckCircle className="w-12 h-12 text-white" />
+
+          {/* Status Filter */}
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Filter by Status
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {(Object.keys(STATUS_CONFIG) as FilterStatus[]).map((status) => {
+                const config = STATUS_CONFIG[status];
+                const isSelected = selectedStatus === status;
+                
+                return (
+                  <button
+                    key={status}
+                    onClick={() => handleStatusChange(status)}
+                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                      isSelected
+                        ? `${config.bg} ${config.color} ${config.border} border`
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    {config.icon}
+                    {config.label}
+                    {status !== 'all' && (
+                      <span className={`px-2 py-0.5 text-xs rounded-full ${config.pill}`}>
+                        {summary[status as BillStatus]?.count || 0}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Performance Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-gray-900 font-semibold">Bills Payment</h3>
-            <div className={`p-2 rounded-lg ${
-              billScore >= 80 ? "bg-green-100" : billScore >= 50 ? "bg-orange-100" : "bg-red-100"
-            }`}>
-              {billScore >= 80 ? (
-                <CheckCircle className="w-5 h-5 text-green-600" />
-              ) : billScore >= 50 ? (
-                <Clock className="w-5 h-5 text-orange-600" />
-              ) : (
-                <XCircle className="w-5 h-5 text-red-600" />
-              )}
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {(['paid', 'overdue', 'pending', 'upcoming'] as BillStatus[]).map((status) => {
+          const config = STATUS_CONFIG[status];
+          const data = summary[status];
+          
+          return (
+            <div
+              key={status}
+              className={`p-6 rounded-xl shadow-sm border ${config.bg} ${config.border}`}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className={config.color}>
+                  {config.icon}
+                </div>
+                <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.pill}`}>
+                  {config.label}
+                </span>
+              </div>
+              
+              <div className="space-y-1">
+                <p className={`text-2xl font-bold ${config.color}`}>
+                  {data.count}
+                </p>
+                <p className="text-sm text-gray-600">
+                  {formatCurrency(data.total_amount)}
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-gray-600">
-              <span>Paid: {paidBills}</span>
-              <span>Pending: {pendingBills.length}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full ${
-                  billScore >= 80 ? "bg-green-600" : billScore >= 50 ? "bg-orange-600" : "bg-red-600"
-                }`}
-                style={{ width: `${billScore}%` }}
-              />
-            </div>
-            <p className="text-gray-600">{billScore.toFixed(0)}% Completion</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-gray-900 font-semibold">Complaint Resolution</h3>
-            <div className={`p-2 rounded-lg ${
-              complaintScore >= 80 ? "bg-green-100" : complaintScore >= 50 ? "bg-orange-100" : "bg-red-100"
-            }`}>
-              {complaintScore >= 80 ? (
-                <CheckCircle className="w-5 h-5 text-green-600" />
-              ) : complaintScore >= 50 ? (
-                <Clock className="w-5 h-5 text-orange-600" />
-              ) : (
-                <XCircle className="w-5 h-5 text-red-600" />
-              )}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-gray-600">
-              <span>Resolved: {resolvedComplaints}</span>
-              <span>Active: {pendingComplaints.length + inProgressComplaints.length}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full ${
-                  complaintScore >= 80 ? "bg-green-600" : complaintScore >= 50 ? "bg-orange-600" : "bg-red-600"
-                }`}
-                style={{ width: `${complaintScore}%` }}
-              />
-            </div>
-            <p className="text-gray-600">{complaintScore.toFixed(0)}% Resolution Rate</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-gray-900 font-semibold">Payment Verification</h3>
-            <div className={`p-2 rounded-lg ${
-              paymentScore >= 80 ? "bg-green-100" : paymentScore >= 50 ? "bg-orange-100" : "bg-red-100"
-            }`}>
-              {paymentScore >= 80 ? (
-                <CheckCircle className="w-5 h-5 text-green-600" />
-              ) : paymentScore >= 50 ? (
-                <Clock className="w-5 h-5 text-orange-600" />
-              ) : (
-                <XCircle className="w-5 h-5 text-red-600" />
-              )}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-gray-600">
-              <span>Verified: {verifiedPayments}</span>
-              <span>Total: {totalRenters}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full ${
-                  paymentScore >= 80 ? "bg-green-600" : paymentScore >= 50 ? "bg-orange-600" : "bg-red-600"
-                }`}
-                style={{ width: `${paymentScore}%` }}
-              />
-            </div>
-            <p className="text-gray-600">{paymentScore.toFixed(0)}% Verified</p>
-          </div>
-        </div>
+          );
+        })}
       </div>
 
-      {/* Bills Management - Tabbed View */}
+      {/* Bills List */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         <div className="p-6 border-b border-gray-200">
-          <h2 className="text-gray-900 text-xl font-semibold mb-4">Building Bills Management</h2>
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => setCurrentTab("pending")}
-              className={`px-4 py-2 rounded-lg transition-colors ${
-                currentTab === "pending"
-                  ? "bg-red-500 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" />
-                <span>Pending ({pendingBills.length + overdueBills.length})</span>
-              </div>
-            </button>
-            <button
-              onClick={() => setCurrentTab("upcoming")}
-              className={`px-4 py-2 rounded-lg transition-colors ${
-                currentTab === "upcoming"
-                  ? "bg-indigo-500 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4" />
-                <span>Upcoming ({upcomingBills.length})</span>
-              </div>
-            </button>
-            <button
-              onClick={() => setCurrentTab("summary")}
-              className={`px-4 py-2 rounded-lg transition-colors ${
-                currentTab === "summary"
-                  ? "bg-indigo-500 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4" />
-                <span>Monthly Summary</span>
-              </div>
-            </button>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Bills List
+              {selectedMonth !== "all" && (
+                <span className="text-sm font-normal text-gray-500 ml-2">
+                  • {availableMonths.find(m => m.month_key === selectedMonth)?.month_label}
+                </span>
+              )}
+            </h2>
+            <div className="text-sm text-gray-500">
+              {bills.length} bill{bills.length !== 1 ? 's' : ''} found
+            </div>
           </div>
         </div>
 
-        <div className="p-6">
-          {/* Pending/Overdue Bills Tab */}
-          {currentTab === "pending" && (
-            <div className="space-y-3">
-              {[...overdueBills, ...pendingBills].length > 0 ? (
-                [...overdueBills, ...pendingBills].map((bill) => {
-                  const isOverdue = bill.status === 'overdue';
-                  
-                  return (
-                    <div 
-                      key={bill.id} 
-                      className={`flex items-center justify-between p-4 rounded-lg ${
-                        isOverdue 
-                          ? "bg-red-50 border border-red-200" 
-                          : "bg-orange-50 border border-orange-200"
-                      }`}
-                    >
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs px-2 py-1 bg-white rounded-full text-gray-600">
-                            {bill.bill_source}
-                          </span>
-                          <p className="text-gray-900 capitalize font-medium">{bill.title}</p>
-                        </div>
-                        <p className="text-gray-600 text-sm mt-1">
-                          {bill.building_name} • Due: {new Date(bill.due_date).toLocaleDateString()}
-                        </p>
-                        {bill.provider && (
-                          <p className="text-xs text-gray-500 mt-1">{bill.provider}</p>
-                        )}
+        <div className="divide-y divide-gray-200">
+          {bills.length > 0 ? (
+            bills.map((bill) => {
+              const config = STATUS_CONFIG[bill.status];
+              
+              return (
+                <div key={bill.id} className="p-6 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="font-medium text-gray-900">{bill.title}</h3>
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${config.pill}`}>
+                          {config.label}
+                        </span>
                       </div>
-                      <div className="text-right">
-                        <p className="text-gray-900 font-semibold">৳{bill.amount.toLocaleString()}</p>
-                        <p className={isOverdue ? "text-red-600" : "text-orange-600"}>
-                          {isOverdue ? "Overdue" : "Pending"}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="text-center py-8">
-                  <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
-                  <p className="text-gray-600">No pending bills! All bills are up to date.</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Upcoming Bills Tab */}
-          {currentTab === "upcoming" && (
-            <div className="space-y-3">
-              {upcomingBills.length > 0 ? (
-                upcomingBills.map((bill) => {
-                  const isPaid = bill.status === "paid";
-                  return (
-                    <div
-                      key={bill.id}
-                      className={`flex items-center justify-between p-4 rounded-lg ${
-                        isPaid
-                          ? "bg-green-50 border border-green-200"
-                          : "bg-blue-50 border border-blue-200"
-                      }`}
-                    >
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs px-2 py-1 bg-white rounded-full text-gray-600">
-                            {bill.bill_source}
-                          </span>
-                          <p className="text-gray-900 capitalize font-medium">{bill.title}</p>
-                          {isPaid && (
-                            <CheckCircle className="w-4 h-4 text-green-600" />
+                      
+                      <div className="text-sm text-gray-600 space-y-1">
+                        <div className="flex items-center gap-4">
+                          <span>Due: {formatDate(bill.due_date)}</span>
+                          {bill.paid_date && (
+                            <span>Paid: {formatDate(bill.paid_date)}</span>
                           )}
                         </div>
-                        <p className="text-gray-600 text-sm mt-1">
-                          {bill.building_name} • Due: {new Date(bill.due_date).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-gray-900 font-semibold">৳{bill.amount.toLocaleString()}</p>
-                        <p className={isPaid ? "text-green-600" : "text-blue-600"}>
-                          {isPaid ? "Paid" : "Upcoming"}
-                        </p>
+                        
+                        {bill.description && (
+                          <p className="text-gray-500">{bill.description}</p>
+                        )}
                       </div>
                     </div>
-                  );
-                })
-              ) : (
-                <div className="text-center py-8">
-                  <Calendar className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">No upcoming bills.</p>
+                    
+                    <div className="text-right">
+                      <p className="text-lg font-semibold text-gray-900">
+                        {formatCurrency(bill.amount)}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        by {bill.manager_name}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Monthly Summary Tab - NOW USING REAL DATA */}
-          {currentTab === "summary" && (
-            <div className="space-y-6">
-              {/* Month Selector */}
-              {monthlySummaries.length > 1 && (
-                <div className="flex items-center gap-2 overflow-x-auto pb-2">
-                  {monthlySummaries.map((summary) => (
-                    <button
-                      key={summary.month}
-                      onClick={() => setSelectedMonth(summary.month)}
-                      className={`px-4 py-2 rounded-lg whitespace-nowrap transition-colors ${
-                        selectedMonth === summary.month
-                          ? "bg-indigo-500 text-white"
-                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                      }`}
-                    >
-                      {summary.month}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {currentMonthData && (
-                <>
-        {/* Summary Cards for Selected Month */}
-<div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-  <div className="p-4 bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-lg border border-indigo-200">
-    <p className="text-indigo-700">Total Bills</p>
-    <p className="text-indigo-900 mt-1 text-2xl font-bold">{currentMonthData.totalBills}</p>
-    <p className="text-indigo-600 text-sm mt-1">
-      ৳{currentMonthData.totalAmount.toLocaleString('en-BD', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-    </p>
-  </div>
-  <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border border-green-200">
-    <p className="text-green-700">Paid Bills</p>
-    <div className="flex items-center justify-between mt-1">
-      <p className="text-green-900 text-2xl font-bold">{currentMonthData.paidBills}</p>
-      <p className="text-green-700 font-medium">
-        ৳{currentMonthData.paidAmount.toLocaleString('en-BD', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-      </p>
-    </div>
-    <p className="text-green-600 text-sm mt-1">
-      {currentMonthData.totalBills > 0 
-        ? Math.round((currentMonthData.paidBills / currentMonthData.totalBills) * 100)
-        : 0}% of bills
-    </p>
-  </div>
-  <div className="p-4 bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg border border-orange-200">
-    <p className="text-orange-700">Unpaid Bills</p>
-    <div className="flex items-center justify-between mt-1">
-      <p className="text-orange-900 text-2xl font-bold">{currentMonthData.unpaidBills}</p>
-      <p className="text-orange-700 font-medium">
-        ৳{currentMonthData.unpaidAmount.toLocaleString('en-BD', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-      </p>
-    </div>
-    <p className="text-orange-600 text-sm mt-1">
-      {currentMonthData.totalBills > 0 
-        ? Math.round((currentMonthData.unpaidBills / currentMonthData.totalBills) * 100)
-        : 0}% of bills
-    </p>
-  </div>
-</div>
-
-                  {/* Paid Bills List */}
-                  {currentMonthData.paidBills > 0 && (
-                    <div>
-                      <h3 className="text-gray-900 font-semibold mb-3 flex items-center gap-2">
-                        <CheckCircle className="w-5 h-5 text-green-600" />
-                        Paid Bills ({currentMonthData.paidBills})
-                      </h3>
-                      <div className="space-y-2">
-                        {currentMonthData.bills
-                          .filter(bill => bill.status === 'paid')
-                          .map((bill) => (
-                            <div key={bill.id} className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs px-2 py-1 bg-white rounded-full text-gray-600">
-                                    {bill.bill_source}
-                                  </span>
-                                  <p className="text-gray-900 capitalize font-medium">{bill.title}</p>
-                                </div>
-                                <p className="text-gray-600 text-sm mt-1">{bill.building_name}</p>
-                                {bill.paid_date && (
-                                  <p className="text-gray-600 text-sm">
-                                    Paid on: {new Date(bill.paid_date).toLocaleDateString()}
-                                  </p>
-                                )}
-                                {bill.provider && (
-                                  <p className="text-xs text-gray-500 mt-1">{bill.provider}</p>
-                                )}
-                              </div>
-                              <p className="text-gray-900 font-semibold">৳{bill.amount.toLocaleString()}</p>
-                            </div>
-                          ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Unpaid Bills List */}
-                  {currentMonthData.unpaidBills > 0 && (
-                    <div>
-                      <h3 className="text-gray-900 font-semibold mb-3 flex items-center gap-2">
-                        <Clock className="w-5 h-5 text-orange-600" />
-                        Unpaid Bills ({currentMonthData.unpaidBills})
-                      </h3>
-                      <div className="space-y-2">
-                        {currentMonthData.bills
-                          .filter(bill => bill.status !== 'paid')
-                          .map((bill) => (
-                            <div key={bill.id} className="flex items-center justify-between p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs px-2 py-1 bg-white rounded-full text-gray-600">
-                                    {bill.bill_source}
-                                  </span>
-                                  <p className="text-gray-900 capitalize font-medium">{bill.title}</p>
-                                  {bill.status === 'overdue' && (
-                                    <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded">
-                                      Overdue
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-gray-600 text-sm mt-1">{bill.building_name}</p>
-                                <p className="text-gray-600 text-sm">
-                                  Due: {new Date(bill.due_date).toLocaleDateString()}
-                                </p>
-                                {bill.provider && (
-                                  <p className="text-xs text-gray-500 mt-1">{bill.provider}</p>
-                                )}
-                              </div>
-                              <p className="text-gray-900 font-semibold">৳{bill.amount.toLocaleString()}</p>
-                            </div>
-                          ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {currentMonthData.totalBills === 0 && (
-                    <div className="text-center py-8">
-                      <FileText className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                      <p className="text-gray-600">No bills for {currentMonthData.month}</p>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {monthlySummaries.length === 0 && (
-                <div className="text-center py-8">
-                  <FileText className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-600">No bills found</p>
-                </div>
-              )}
+              );
+            })
+          ) : (
+            <div className="p-12 text-center">
+              <ReceiptText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No bills found</h3>
+              <p className="text-gray-600">
+                {selectedMonth !== "all" || selectedStatus !== "all" 
+                  ? "Try adjusting your filters to see more results."
+                  : "No bills have been created yet."
+                }
+              </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Pending/In-Progress Complaints */}
-      {(pendingComplaints.length > 0 || inProgressComplaints.length > 0) && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-gray-900 text-xl font-semibold">Active Complaints</h2>
-          </div>
-          <div className="p-6">
-            <div className="space-y-3">
-              {[...pendingComplaints, ...inProgressComplaints].map((complaint) => (
-                <div key={complaint.id} className="border-l-4 border-orange-500 bg-orange-50 p-4 rounded">
-                  <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <p className="text-gray-900 font-medium">{complaint.title}</p>
-                      <p className="text-gray-600">{complaint.renterName} - {complaint.apartment}</p>
-                    </div>
-                    <span className={`px-3 py-1 rounded-full text-sm ${
-                      complaint.status === "in-progress"
-                        ? "bg-blue-100 text-blue-700"
-                        : "bg-orange-100 text-orange-700"
-                    }`}>
-                      {complaint.status === "in-progress" ? "In Progress" : "Pending"}
-                    </span>
-                  </div>
-                  <p className="text-gray-600 mt-2">{complaint.description}</p>
-                  <p className="text-gray-500 mt-2">
-                    Submitted: {new Date(complaint.createdAt).toLocaleDateString()} | Priority: <span className={
-                      complaint.priority === "high" ? "text-red-600" : complaint.priority === "medium" ? "text-yellow-600" : "text-green-600"
-                    }>{complaint.priority}</span>
-                  </p>
-                </div>
-              ))}
+      {/* Summary Footer */}
+      {summary.total.count > 0 && (
+        <div className="bg-gradient-to-r from-violet-500 to-violet-600 rounded-xl p-6 text-white">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-violet-100">Total Bills</p>
+              <p className="text-2xl font-bold">{summary.total.count}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-violet-100">Total Amount</p>
+              <p className="text-2xl font-bold">{formatCurrency(summary.total.total_amount)}</p>
+            </div>
+            <div className="bg-white/20 rounded-full p-3">
+              <TrendingUp className="w-8 h-8" />
             </div>
           </div>
         </div>
       )}
-
-      {/* Recommendations */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h2 className="text-gray-900 text-xl font-semibold mb-4">Recommendations</h2>
-        <div className="space-y-3">
-          {pendingBills.length > 0 && (
-            <div className="flex items-start gap-3 p-4 bg-orange-50 border border-orange-200 rounded-lg">
-              <AlertTriangle className="w-5 h-5 text-orange-600 mt-0.5" />
-              <div>
-                <p className="text-gray-900 font-medium">Follow up on pending bills</p>
-                <p className="text-gray-600">There are {pendingBills.length} bills pending payment</p>
-              </div>
-            </div>
-          )}
-          {pendingComplaints.length > 0 && (
-            <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5" />
-              <div>
-                <p className="text-gray-900 font-medium">Address pending complaints</p>
-                <p className="text-gray-600">{pendingComplaints.length} complaints need immediate attention</p>
-              </div>
-            </div>
-          )}
-          {overallScore >= 80 && (
-            <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
-              <div>
-                <p className="text-gray-900 font-medium">Excellent performance</p>
-                <p className="text-gray-600">Manager is maintaining high standards across all areas</p>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
