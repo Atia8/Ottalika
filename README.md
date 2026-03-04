@@ -191,25 +191,6 @@ ottalika/
 
 ---
 
-## Team Contributions
-
-### Member 1 (Owner Focus)
-- Owner module development
-- Manager status tracking
-- Complaint monitoring
-- Owner-related database operations
-
-### Member 2 (Manager & Renter Focus)
-- Manager module (full-stack)
-- Renter backend development
-- Registration and authentication
-- System integration
-- Core database design
-- Real-time chat implementation
-- Payment system and lease renewal
-
----
-
 ## Future Enhancements
 
 - Mobile app with React Native
