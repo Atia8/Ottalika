@@ -31,4 +31,3 @@ BEGIN
     CLOSE req_cursor;
 END;
 $$ LANGUAGE plpgsql;
-
